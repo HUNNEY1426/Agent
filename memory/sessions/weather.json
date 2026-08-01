@@ -1,0 +1,10 @@
+[
+  {
+    "role": "user",
+    "text": "Today's weather?"
+  },
+  {
+    "role": "assistant",
+    "text": "To give you today's weather forecast, I need to know your current location. \n\nCould you please share your **city and state/country**?"
+  }
+]
