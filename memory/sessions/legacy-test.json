@@ -1,0 +1,16 @@
+{
+  "id": "legacy-test",
+  "title": "Legacy-test Help",
+  "createdAt": "2026-08-03T11:53:09.248Z",
+  "updatedAt": "2026-08-03T11:53:21.599Z",
+  "messages": [
+    {
+      "role": "user",
+      "content": "hello"
+    },
+    {
+      "role": "assistant",
+      "content": "Hello! How can I help you today?"
+    }
+  ]
+}

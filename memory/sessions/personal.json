@@ -1,18 +1,24 @@
-[
-  {
-    "role": "user",
-    "text": "Who are you?"
-  },
-  {
-    "role": "assistant",
-    "text": "I am Gemini, a large language model created by Google. How can I help you today?"
-  },
-  {
-    "role": "user",
-    "text": "Hello Personal"
-  },
-  {
-    "role": "assistant",
-    "text": "Hello! How can I assist you today? Whether you need help with a project, have a question, or just want to brainstorm ideas, I'm here to help."
-  }
-]
+{
+  "id": "personal",
+  "title": "Personal Help",
+  "createdAt": "2026-07-31T15:10:27.978Z",
+  "updatedAt": "2026-08-03T11:00:19.913Z",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Who are you?"
+    },
+    {
+      "role": "assistant",
+      "content": "I am Gemini, a large language model created by Google. How can I help you today?"
+    },
+    {
+      "role": "user",
+      "content": "Hello Personal"
+    },
+    {
+      "role": "assistant",
+      "content": "Hello! How can I assist you today? Whether you need help with a project, have a question, or just want to brainstorm ideas, I'm here to help."
+    }
+  ]
+}

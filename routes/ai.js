@@ -34,7 +34,15 @@ router.post("/chat/new", (req, res) => {
     const sessionFile = path.join(SESSION_DIR, `${name}.json`);
 
     if (!fs.existsSync(sessionFile)) {
-        fs.writeFileSync(sessionFile, "[]");
+        const now = new Date().toISOString();
+        const initialSession = {
+            id: name,
+            title: name.charAt(0).toUpperCase() + name.slice(1) + " Help",
+            createdAt: now,
+            updatedAt: now,
+            messages: []
+        };
+        fs.writeFileSync(sessionFile, JSON.stringify(initialSession, null, 2));
     }
 
     fs.writeFileSync(ACTIVE_FILE, name);
@@ -76,11 +84,16 @@ router.post("/chat/switch", (req, res) => {
         if (content) {
             const parsed = JSON.parse(content);
             if (Array.isArray(parsed)) {
-                history = parsed;
+                history = parsed.map(msg => ({
+                    role: msg.role,
+                    text: msg.text || msg.content || "",
+                    content: msg.content || msg.text || ""
+                }));
             } else if (parsed && Array.isArray(parsed.messages)) {
                 history = parsed.messages.map(msg => ({
                     role: msg.role,
-                    text: msg.text || msg.content || ""
+                    text: msg.text || msg.content || "",
+                    content: msg.content || msg.text || ""
                 }));
             }
         }
@@ -102,10 +115,63 @@ router.get("/chat/list", (req, res) => {
         return res.json([]);
     }
 
-    const sessions = fs.readdirSync(SESSION_DIR)
-        .map(file => file.replace(".json", ""));
+    const files = fs.readdirSync(SESSION_DIR).filter(file => file.endsWith(".json"));
+    
+    const sessionsList = files.map(file => {
+        const name = file.replace(".json", "");
+        const filePath = path.join(SESSION_DIR, file);
+        try {
+            const content = fs.readFileSync(filePath, "utf8").trim();
+            if (!content) {
+                const stats = fs.statSync(filePath);
+                const updatedTime = stats.mtime.toISOString();
+                return {
+                    id: name,
+                    title: name.charAt(0).toUpperCase() + name.slice(1) + " Help",
+                    messageCount: 0,
+                    messagesCount: 0,
+                    updatedAt: updatedTime,
+                    updatedDate: updatedTime
+                };
+            }
+            const parsed = JSON.parse(content);
+            if (Array.isArray(parsed)) {
+                const stats = fs.statSync(filePath);
+                const updatedTime = stats.mtime.toISOString();
+                return {
+                    id: name,
+                    title: name.charAt(0).toUpperCase() + name.slice(1) + " Help",
+                    messageCount: parsed.length,
+                    messagesCount: parsed.length,
+                    updatedAt: updatedTime,
+                    updatedDate: updatedTime
+                };
+            } else if (parsed && typeof parsed === "object") {
+                const msgCount = Array.isArray(parsed.messages) ? parsed.messages.length : 0;
+                const updatedTime = parsed.updatedAt || parsed.createdAt || new Date().toISOString();
+                return {
+                    id: parsed.id || name,
+                    title: parsed.title || (name.charAt(0).toUpperCase() + name.slice(1) + " Help"),
+                    messageCount: msgCount,
+                    messagesCount: msgCount,
+                    updatedAt: updatedTime,
+                    updatedDate: updatedTime
+                };
+            }
+        } catch (e) {
+            // Fallback
+        }
+        return {
+            id: name,
+            title: name.charAt(0).toUpperCase() + name.slice(1) + " Help",
+            messageCount: 0,
+            messagesCount: 0,
+            updatedAt: new Date().toISOString(),
+            updatedDate: new Date().toISOString()
+        };
+    });
 
-    res.json(sessions);
+    res.json(sessionsList);
 
 });
 

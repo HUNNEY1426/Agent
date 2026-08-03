@@ -19,29 +19,62 @@ function readActiveSession() {
     }
 }
 
-function saveMessage(sessionName, message) {
-    const sessionFile = path.join(SESSION_DIR, `${sessionName}.json`);
-    let history = [];
-    if (fs.existsSync(sessionFile)) {
+function getSessionObject(sessionName, file) {
+    const now = new Date().toISOString();
+    const defaultTitle = sessionName.charAt(0).toUpperCase() + sessionName.slice(1) + " Help";
+    let session = {
+        id: sessionName,
+        title: defaultTitle,
+        createdAt: now,
+        updatedAt: now,
+        messages: []
+    };
+
+    if (fs.existsSync(file)) {
         try {
-            const content = fs.readFileSync(sessionFile, "utf8").trim();
+            const content = fs.readFileSync(file, "utf8").trim();
             if (content) {
                 const parsed = JSON.parse(content);
                 if (Array.isArray(parsed)) {
-                    history = parsed;
-                } else if (parsed && Array.isArray(parsed.messages)) {
-                    history = parsed.messages.map(msg => ({
+                    const stats = fs.statSync(file);
+                    session.createdAt = stats.birthtime ? stats.birthtime.toISOString() : now;
+                    session.updatedAt = stats.mtime ? stats.mtime.toISOString() : now;
+                    session.messages = parsed.map(msg => ({
                         role: msg.role,
-                        text: msg.text || msg.content || ""
+                        content: msg.content || msg.text || ""
+                    }));
+                } else if (parsed && typeof parsed === "object") {
+                    session = parsed;
+                    if (!session.id) session.id = sessionName;
+                    if (!session.title) session.title = defaultTitle;
+                    if (!session.createdAt) session.createdAt = now;
+                    if (!session.updatedAt) session.updatedAt = now;
+                    if (!session.messages) session.messages = [];
+                    session.messages = session.messages.map(msg => ({
+                        role: msg.role,
+                        content: msg.content || msg.text || ""
                     }));
                 }
             }
         } catch (e) {
-            history = [];
+            // Ignore error, return default structure
         }
     }
-    history.push(message);
-    fs.writeFileSync(sessionFile, JSON.stringify(history, null, 2));
+    return session;
+}
+
+function saveMessage(sessionName, message) {
+    const sessionFile = path.join(SESSION_DIR, `${sessionName}.json`);
+    const session = getSessionObject(sessionName, sessionFile);
+
+    const formattedMsg = {
+        role: message.role,
+        content: message.content || message.text || ""
+    };
+    session.messages.push(formattedMsg);
+    session.updatedAt = new Date().toISOString();
+
+    fs.writeFileSync(sessionFile, JSON.stringify(session, null, 2));
 }
 
 function getActiveSession() {
@@ -56,24 +89,35 @@ function getSessionFile() {
 
 function loadHistory() {
     const file = getSessionFile();
+    const active = getActiveSession();
 
     if (!fs.existsSync(file)) {
-        fs.writeFileSync(file, "[]");
+        const now = new Date().toISOString();
+        const initialSession = {
+            id: active,
+            title: active.charAt(0).toUpperCase() + active.slice(1) + " Help",
+            createdAt: now,
+            updatedAt: now,
+            messages: []
+        };
+        fs.writeFileSync(file, JSON.stringify(initialSession, null, 2));
     }
 
     try {
         const content = fs.readFileSync(file, "utf8").trim();
         if (!content) return [];
         const parsed = JSON.parse(content);
+        let messages = [];
         if (Array.isArray(parsed)) {
-            return parsed;
+            messages = parsed;
         } else if (parsed && Array.isArray(parsed.messages)) {
-            return parsed.messages.map(msg => ({
-                role: msg.role,
-                text: msg.text || msg.content || ""
-            }));
+            messages = parsed.messages;
         }
-        return [];
+        return messages.map(msg => ({
+            role: msg.role,
+            text: msg.text || msg.content || "",
+            content: msg.content || msg.text || ""
+        }));
     } catch (e) {
         return [];
     }
@@ -81,7 +125,16 @@ function loadHistory() {
 
 function saveHistory(history) {
     const file = getSessionFile();
-    fs.writeFileSync(file, JSON.stringify(history, null, 2));
+    const active = getActiveSession();
+    const session = getSessionObject(active, file);
+
+    session.messages = history.map(msg => ({
+        role: msg.role,
+        content: msg.content || msg.text || ""
+    }));
+    session.updatedAt = new Date().toISOString();
+
+    fs.writeFileSync(file, JSON.stringify(session, null, 2));
 }
 
 module.exports = {
