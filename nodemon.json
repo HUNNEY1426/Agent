@@ -1,0 +1,11 @@
+{
+    "watch": [
+        "routes",
+        "services",
+        "controllers"
+    ],
+    "ext": "js,json",
+    "ignore": [
+        "memory/sessions"
+    ]
+}

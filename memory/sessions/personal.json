@@ -1,0 +1,18 @@
+[
+  {
+    "role": "user",
+    "text": "Who are you?"
+  },
+  {
+    "role": "assistant",
+    "text": "I am Gemini, a large language model created by Google. How can I help you today?"
+  },
+  {
+    "role": "user",
+    "text": "Hello Personal"
+  },
+  {
+    "role": "assistant",
+    "text": "Hello! How can I assist you today? Whether you need help with a project, have a question, or just want to brainstorm ideas, I'm here to help."
+  }
+]

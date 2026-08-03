@@ -38,6 +38,10 @@ router.post("/chat/new", (req, res) => {
     }
 
     fs.writeFileSync(ACTIVE_FILE, name);
+    fs.writeFileSync(
+        path.join(MEMORY_DIR, "active_session.json"),
+        JSON.stringify({ active: name, lastOpened: new Date().toISOString() }, null, 2)
+    );
 
     res.json({
         success: true,
@@ -61,10 +65,28 @@ router.post("/chat/switch", (req, res) => {
     }
 
     fs.writeFileSync(ACTIVE_FILE, name);
-
-    const history = JSON.parse(
-        fs.readFileSync(sessionFile)
+    fs.writeFileSync(
+        path.join(MEMORY_DIR, "active_session.json"),
+        JSON.stringify({ active: name, lastOpened: new Date().toISOString() }, null, 2)
     );
+
+    let history = [];
+    try {
+        const content = fs.readFileSync(sessionFile, "utf8").trim();
+        if (content) {
+            const parsed = JSON.parse(content);
+            if (Array.isArray(parsed)) {
+                history = parsed;
+            } else if (parsed && Array.isArray(parsed.messages)) {
+                history = parsed.messages.map(msg => ({
+                    role: msg.role,
+                    text: msg.text || msg.content || ""
+                }));
+            }
+        }
+    } catch (e) {
+        history = [];
+    }
 
     res.json({
         message: `Switched to ${name}`,

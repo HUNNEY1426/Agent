@@ -1,22 +1,22 @@
 require("dotenv").config();
 
 const { GoogleGenAI } = require("@google/genai");
-const { loadHistory, saveHistory } = require("./sessionService");
+const { loadHistory, readActiveSession, saveMessage } = require("./sessionService");
 
 const ai = new GoogleGenAI({
     apiKey: process.env.GEMINI_API_KEY,
 });
 
 async function askAI(question) {
-
+    const active = readActiveSession();
     const history = loadHistory();
 
-    history.push({
+    const userMessage = {
         role: "user",
         text: question
-    });
+    };
 
-    const prompt = history
+    const prompt = [...history, userMessage]
         .map(msg => `${msg.role}: ${msg.text}`)
         .join("\n");
 
@@ -27,12 +27,13 @@ async function askAI(question) {
 
     const answer = response.text;
 
-    history.push({
+    const assistantMessage = {
         role: "assistant",
         text: answer
-    });
+    };
 
-    saveHistory(history);
+    saveMessage(active.active, userMessage);
+    saveMessage(active.active, assistantMessage);
 
     return answer;
 }
