@@ -266,6 +266,366 @@ program
 
 
 
+// Delete Chat Session
+program
+    .command("chat:delete <name>")
+    .description("Delete a chat session")
+    .action(async (name) => {
+
+        console.log(chalk.green("✔ Connected"));
+
+        const spinner = ora("Deleting Chat Session...").start();
+
+        try {
+
+            const res = await axios.delete(
+                `http://localhost:3000/ai/chat/delete/${name}`
+            );
+
+            spinner.succeed("Done");
+
+            console.log(chalk.cyan(res.data.message));
+
+        } catch (err) {
+
+            spinner.fail("Error");
+
+            console.log(err.response?.data?.error || err.response?.data || err.message);
+
+        }
+
+    });
+
+
+// Rename Chat Session
+program
+    .command("chat:rename <oldName> <newName>")
+    .description("Rename active or other chat session")
+    .action(async (oldName, newName) => {
+
+        console.log(chalk.green("✔ Connected"));
+
+        const spinner = ora("Renaming Chat Session...").start();
+
+        try {
+
+            const res = await axios.post(
+                "http://localhost:3000/ai/chat/rename",
+                {
+                    oldName,
+                    newName,
+                }
+            );
+
+            spinner.succeed("Done");
+
+            console.log(chalk.cyan(res.data.message));
+
+        } catch (err) {
+
+            spinner.fail("Error");
+
+            console.log(err.response?.data?.error || err.response?.data || err.message);
+
+        }
+
+    });
+
+
+// Clear Chat Session
+program
+    .command("chat:clear <name>")
+    .description("Clear messages in a chat session")
+    .action(async (name) => {
+
+        console.log(chalk.green("✔ Connected"));
+
+        const spinner = ora("Clearing Chat Session...").start();
+
+        try {
+
+            const res = await axios.post(
+                "http://localhost:3000/ai/chat/clear",
+                {
+                    name,
+                }
+            );
+
+            spinner.succeed("Done");
+
+            console.log(chalk.cyan(res.data.message));
+
+        } catch (err) {
+
+            spinner.fail("Error");
+
+            console.log(err.response?.data?.error || err.response?.data || err.message);
+
+        }
+
+    });
+
+
+// Duplicate Chat Session
+program
+    .command("chat:duplicate <source> <target>")
+    .description("Duplicate a chat session")
+    .action(async (source, target) => {
+
+        console.log(chalk.green("✔ Connected"));
+
+        const spinner = ora("Duplicating Chat Session...").start();
+
+        try {
+
+            const res = await axios.post(
+                "http://localhost:3000/ai/chat/duplicate",
+                {
+                    source,
+                    target,
+                }
+            );
+
+            spinner.succeed("Done");
+
+            console.log(chalk.cyan(res.data.message));
+
+        } catch (err) {
+
+            spinner.fail("Error");
+
+            console.log(err.response?.data?.error || err.response?.data || err.message);
+
+        }
+
+    });
+
+
+// Get Chat Session Info
+program
+    .command("chat:info <session>")
+    .description("Get details of a chat session")
+    .action(async (session) => {
+
+        console.log(chalk.green("✔ Connected"));
+
+        const spinner = ora("Loading Session Info...").start();
+
+        try {
+
+            const res = await axios.get(
+                `http://localhost:3000/ai/chat/info/${session}`
+            );
+
+            spinner.succeed("Done");
+
+            console.log(`\n${chalk.bold("Session ID:")} ${res.data.id}`);
+            console.log(`${chalk.bold("Title:")} ${res.data.title}`);
+            console.log(`${chalk.bold("Created At:")} ${res.data.createdAt}`);
+            console.log(`${chalk.bold("Updated At:")} ${res.data.updatedAt}`);
+            console.log(`${chalk.bold("Message Count:")} ${res.data.messageCount}`);
+            console.log(`${chalk.bold("Is Active Session:")} ${res.data.isActive}\n`);
+
+        } catch (err) {
+
+            spinner.fail("Error");
+
+            console.log(err.response?.data?.error || err.response?.data || err.message);
+
+        }
+
+    });
+
+
+// Search Chat Messages
+program
+    .command("chat:search <query>")
+    .description("Search messages in all chat sessions")
+    .action(async (query) => {
+
+        console.log(chalk.green("✔ Connected"));
+
+        const spinner = ora("Searching Messages...").start();
+
+        try {
+
+            const res = await axios.get(
+                `http://localhost:3000/ai/chat/search/${encodeURIComponent(query)}`
+            );
+
+            spinner.succeed("Done");
+
+            if (res.data && res.data.length > 0) {
+                console.log(`\nFound ${res.data.length} matches:\n`);
+                res.data.forEach(match => {
+                    console.log(`${chalk.bold("Session:")} ${chalk.yellow(match.session)}`);
+                    console.log(`${chalk.bold("Role:")} ${chalk.cyan(match.role)}`);
+                    console.log(`${chalk.bold("Content:")} ${match.content}`);
+                    console.log("-".repeat(40));
+                });
+            } else {
+                console.log(chalk.yellow("\nNo matching messages found.\n"));
+            }
+
+        } catch (err) {
+
+            spinner.fail("Error");
+
+            console.log(err.response?.data?.error || err.response?.data || err.message);
+
+        }
+
+    });
+
+
+// Export Chat Session
+program
+    .command("chat:export <id> <format>")
+    .description("Export a chat session (json or markdown)")
+    .action(async (id, format) => {
+
+        console.log(chalk.green("✔ Connected"));
+
+        const spinner = ora("Exporting Chat Session...").start();
+
+        try {
+
+            const res = await axios.post(
+                "http://localhost:3000/ai/chat/export",
+                { id, format }
+            );
+
+            spinner.succeed("Done");
+
+            console.log(chalk.cyan(`Session exported successfully to: ${res.data.filePath}`));
+
+        } catch (err) {
+
+            spinner.fail("Error");
+
+            console.log(err.response?.data?.error || err.response?.data || err.message);
+
+        }
+
+    });
+
+
+// Import Chat Session
+program
+    .command("chat:import <filePath>")
+    .description("Import a chat session from a JSON file")
+    .action(async (filePath) => {
+
+        console.log(chalk.green("✔ Connected"));
+
+        const spinner = ora("Importing Chat Session...").start();
+
+        const fs = require("fs");
+        const path = require("path");
+
+        try {
+
+            const absolutePath = path.resolve(filePath);
+            if (!fs.existsSync(absolutePath)) {
+                spinner.fail("Error");
+                console.log(chalk.red(`File not found: ${filePath}`));
+                return;
+            }
+
+            const fileContent = fs.readFileSync(absolutePath, "utf8");
+            let session;
+            try {
+                session = JSON.parse(fileContent);
+            } catch (e) {
+                spinner.fail("Error");
+                console.log(chalk.red("Invalid JSON format in import file."));
+                return;
+            }
+
+            const res = await axios.post(
+                "http://localhost:3000/ai/chat/import",
+                { session }
+            );
+
+            spinner.succeed("Done");
+
+            console.log(chalk.cyan(`Session '${res.data.session.id}' imported successfully`));
+
+        } catch (err) {
+
+            spinner.fail("Error");
+
+            console.log(err.response?.data?.error || err.response?.data || err.message);
+
+        }
+
+    });
+
+
+// Archive Chat Session
+program
+    .command("chat:archive <id>")
+    .description("Archive a chat session")
+    .action(async (id) => {
+
+        console.log(chalk.green("✔ Connected"));
+
+        const spinner = ora("Archiving Chat Session...").start();
+
+        try {
+
+            const res = await axios.post(
+                "http://localhost:3000/ai/chat/archive",
+                { id }
+            );
+
+            spinner.succeed("Done");
+
+            console.log(chalk.cyan(res.data.message));
+
+        } catch (err) {
+
+            spinner.fail("Error");
+
+            console.log(err.response?.data?.error || err.response?.data || err.message);
+
+        }
+
+    });
+
+
+// Restore Chat Session
+program
+    .command("chat:restore <id>")
+    .description("Restore an archived chat session")
+    .action(async (id) => {
+
+        console.log(chalk.green("✔ Connected"));
+
+        const spinner = ora("Restoring Chat Session...").start();
+
+        try {
+
+            const res = await axios.post(
+                "http://localhost:3000/ai/chat/restore",
+                { id }
+            );
+
+            spinner.succeed("Done");
+
+            console.log(chalk.cyan(res.data.message));
+
+        } catch (err) {
+
+            spinner.fail("Error");
+
+            console.log(err.response?.data?.error || err.response?.data || err.message);
+
+        }
+
+    });
+
+
 //run 
 
 
@@ -281,6 +641,16 @@ if (process.argv.length <= 2) {
     console.log("node cli.js chat:new coding");
     console.log("node cli.js chat:list");
     console.log("node cli.js chat:switch coding");
+    console.log("node cli.js chat:delete coding");
+    console.log("node cli.js chat:rename oldName newName");
+    console.log("node cli.js chat:clear coding");
+    console.log("node cli.js chat:duplicate coding backend-copy");
+    console.log("node cli.js chat:info coding");
+    console.log("node cli.js chat:search \"query\"");
+    console.log("node cli.js chat:export coding json");
+    console.log("node cli.js chat:import path/to/file.json");
+    console.log("node cli.js chat:archive coding");
+    console.log("node cli.js chat:restore coding");
 
     process.exit();
 

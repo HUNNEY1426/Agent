@@ -7,6 +7,18 @@ const path = require("path");
 
 
 const { askAI } = require("../services/aiService");
+const {
+    deleteSession,
+    renameSession,
+    clearSession,
+    duplicateSession,
+    getSessionInfo,
+    searchMessages,
+    exportSession,
+    importSession,
+    archiveSession,
+    restoreSession
+} = require("../services/sessionService");
 
 console.log(require("../services/aiService"));
 
@@ -116,7 +128,7 @@ router.get("/chat/list", (req, res) => {
     }
 
     const files = fs.readdirSync(SESSION_DIR).filter(file => file.endsWith(".json"));
-    
+
     const sessionsList = files.map(file => {
         const name = file.replace(".json", "");
         const filePath = path.join(SESSION_DIR, file);
@@ -173,6 +185,159 @@ router.get("/chat/list", (req, res) => {
 
     res.json(sessionsList);
 
+});
+
+// Delete Chat Session
+router.delete("/chat/delete/:name", async (req, res) => {
+    const { name } = req.params;
+    try {
+        await deleteSession(name);
+        res.json({
+            success: true,
+            message: `Session '${name}' deleted`
+        });
+    } catch (err) {
+        res.status(err.message === "Session not found" ? 404 : 400).json({
+            error: err.message
+        });
+    }
+});
+
+// Rename Chat Session
+router.post("/chat/rename", async (req, res) => {
+    const { oldName, newName } = req.body;
+    try {
+        await renameSession(oldName, newName);
+        res.json({
+            success: true,
+            message: `Session '${oldName}' renamed to '${newName}'`
+        });
+    } catch (err) {
+        res.status(err.message === "Session not found" ? 404 : err.message === "Session already exists" ? 409 : 400).json({
+            error: err.message
+        });
+    }
+});
+
+// Clear Chat Session
+router.post("/chat/clear", async (req, res) => {
+    const { name } = req.body;
+    try {
+        await clearSession(name);
+        res.json({
+            success: true,
+            message: `Session '${name}' cleared`
+        });
+    } catch (err) {
+        res.status(err.message === "Session not found" ? 404 : 400).json({
+            error: err.message
+        });
+    }
+});
+
+// Duplicate Chat Session
+router.post("/chat/duplicate", async (req, res) => {
+    const { source, target } = req.body;
+    try {
+        await duplicateSession(source, target);
+        res.json({
+            success: true,
+            message: `Session '${source}' duplicated to '${target}'`
+        });
+    } catch (err) {
+        res.status(err.message === "Session not found" ? 404 : err.message === "Session already exists" ? 409 : 400).json({
+            error: err.message
+        });
+    }
+});
+
+// Get Chat Session Info
+router.get("/chat/info/:name", async (req, res) => {
+    const { name } = req.params;
+    try {
+        const info = await getSessionInfo(name);
+        res.json(info);
+    } catch (err) {
+        res.status(err.message === "Session not found" ? 404 : 400).json({
+            error: err.message
+        });
+    }
+});
+
+// Search Chat Messages
+router.get("/chat/search/:query", async (req, res) => {
+    const { query } = req.params;
+    try {
+        const results = await searchMessages(query);
+        res.json(results);
+    } catch (err) {
+        res.status(400).json({ error: err.message });
+    }
+});
+
+// Export Chat Session
+router.post("/chat/export", async (req, res) => {
+    const { id, format } = req.body;
+    try {
+        const result = await exportSession(id, format);
+        res.json({
+            success: true,
+            filePath: result.filePath,
+            content: result.content
+        });
+    } catch (err) {
+        res.status(err.message === "Session not found" ? 404 : 400).json({
+            error: err.message
+        });
+    }
+});
+
+// Import Chat Session
+router.post("/chat/import", async (req, res) => {
+    const { session } = req.body;
+    try {
+        const imported = await importSession(session);
+        res.json({
+            success: true,
+            session: imported
+        });
+    } catch (err) {
+        res.status(err.message === "Session ID already exists" ? 409 : 400).json({
+            error: err.message
+        });
+    }
+});
+
+// Archive Chat Session
+router.post("/chat/archive", async (req, res) => {
+    const id = req.body.id || req.body.name;
+    try {
+        await archiveSession(id);
+        res.json({
+            success: true,
+            message: `Session '${id}' archived successfully`
+        });
+    } catch (err) {
+        res.status(err.message === "Session not found" ? 404 : err.message === "Session already archived" ? 409 : 400).json({
+            error: err.message
+        });
+    }
+});
+
+// Restore Chat Session
+router.post("/chat/restore", async (req, res) => {
+    const id = req.body.id || req.body.name;
+    try {
+        await restoreSession(id);
+        res.json({
+            success: true,
+            message: `Session '${id}' restored successfully`
+        });
+    } catch (err) {
+        res.status(err.message === "Session not found in archives" ? 404 : err.message === "Session already exists in active sessions" ? 409 : 400).json({
+            error: err.message
+        });
+    }
 });
 
 module.exports = router;
