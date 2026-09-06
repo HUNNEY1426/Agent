@@ -2,6 +2,7 @@ const { Command } = require("commander");
 const axios = require("axios");
 const chalk = require("chalk");
 const ora = require("ora");
+const readline = require("readline");
 
 const program = new Command();
 
@@ -626,40 +627,85 @@ program
     });
 
 
-//run 
+// Interactive Continuous Chat Loop
+async function startInteractiveChat() {
+    console.log(chalk.bold.cyan("\n==========================================="));
+    console.log(chalk.bold.cyan("🤖 Welcome to AI Interactive Chat"));
+    console.log(chalk.gray("Type your question and press Enter."));
+    console.log(chalk.gray("Type 'exit' or 'quit' to end the session."));
+    console.log(chalk.bold.cyan("===========================================\n"));
 
+    const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout
+    });
 
-if (process.argv.length <= 2) {
+    const askQuestion = () => {
+        rl.question(chalk.bold.green("You > "), async (input) => {
+            const trimmed = input.trim();
 
-    console.log(chalk.yellow("No command entered."));
-    console.log("Use:");
+            if (trimmed.toLowerCase() === "exit" || trimmed.toLowerCase() === "quit") {
+                console.log(chalk.yellow("\nExiting chat. Goodbye! 👋\n"));
+                rl.close();
+                process.exit(0);
+            }
 
-    console.log("node cli.js ask \"Hello\"");
-    console.log("node cli.js create notes.txt");
-    console.log("node cli.js run \"dir\"");
+            if (!trimmed) {
+                askQuestion();
+                return;
+            }
 
-    console.log("node cli.js chat:new coding");
-    console.log("node cli.js chat:list");
-    console.log("node cli.js chat:switch coding");
-    console.log("node cli.js chat:delete coding");
-    console.log("node cli.js chat:rename oldName newName");
-    console.log("node cli.js chat:clear coding");
-    console.log("node cli.js chat:duplicate coding backend-copy");
-    console.log("node cli.js chat:info coding");
-    console.log("node cli.js chat:search \"query\"");
-    console.log("node cli.js chat:export coding json");
-    console.log("node cli.js chat:import path/to/file.json");
-    console.log("node cli.js chat:archive coding");
-    console.log("node cli.js chat:restore coding");
+            const spinner = ora("AI Thinking...").start();
 
-    process.exit();
+            try {
+                const res = await axios.post("http://localhost:3000/ai/ask", {
+                    question: trimmed,
+                });
 
+                spinner.succeed(chalk.green("AI:"));
+                console.log(chalk.cyan(res.data.answer) + "\n");
+            } catch (err) {
+                spinner.fail("Error");
+
+                if (err.response) {
+                    console.log(chalk.red("Server Error:"));
+                    console.log(err.response.data);
+                } else {
+                    console.log(chalk.red("Cannot connect to server."));
+                    console.log("Make sure Express server is running.\n");
+                }
+            }
+
+            askQuestion();
+        });
+    };
+
+    rl.on("SIGINT", () => {
+        console.log(chalk.yellow("\nExiting chat. Goodbye! 👋\n"));
+        rl.close();
+        process.exit(0);
+    });
+
+    askQuestion();
 }
 
-// Invalid command ke liye suggestions
-program.showSuggestionAfterError(true);
-program.showHelpAfterError();
+// Interactive chat command
+program
+    .command("chat")
+    .description("Start continuous interactive AI chat loop")
+    .action(async () => {
+        await startInteractiveChat();
+    });
 
-// CLI start
-program.parse(process.argv);
+// If no command entered (e.g. `npm run client` or `node cli.js`), start interactive chat loop
+if (process.argv.length <= 2) {
+    startInteractiveChat();
+} else {
+    // Invalid command ke liye suggestions
+    program.showSuggestionAfterError(true);
+    program.showHelpAfterError();
+
+    // CLI start
+    program.parse(process.argv);
+}
 

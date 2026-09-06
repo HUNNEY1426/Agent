@@ -1,3 +1,5 @@
+require("dotenv").config();
+
 const express = require("express");
 const fileRoutes = require("./routes/file");
 const shellRoutes = require("./routes/shell");
@@ -5,18 +7,38 @@ const aiRoutes = require("./routes/ai");
 
 const app = express();
 
+// Request size limit to prevent abuse
+app.use(express.json({ limit: "1mb" }));
 
-
-app.use(express.json());
-
+// Routes
 app.use("/ai", aiRoutes);
 app.use("/file", fileRoutes);
 app.use("/shell", shellRoutes);
 
 app.get("/", (req, res) => {
-    res.send("Server Running");
+    res.json({
+        status: "running",
+        message: "AI Terminal Agent Server",
+        version: "2.0.0"
+    });
 });
 
-app.listen(3000, () => {
-    console.log("Server running on http://localhost:3000");
+// Global error handler
+app.use((err, req, res, next) => {
+    console.error("Unhandled Error:", err.message);
+    res.status(500).json({
+        success: false,
+        error: {
+            code: "INTERNAL_ERROR",
+            message: "An unexpected error occurred"
+        }
+    });
 });
+
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+});
+
+module.exports = app;

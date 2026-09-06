@@ -1,11 +1,7 @@
 require("dotenv").config();
 
-const { GoogleGenAI } = require("@google/genai");
+const providerManager = require("./providerManager");
 const { loadHistory, readActiveSession, saveMessage } = require("./sessionService");
-
-const ai = new GoogleGenAI({
-    apiKey: process.env.GEMINI_API_KEY,
-});
 
 async function askAI(question) {
     const active = readActiveSession();
@@ -13,22 +9,27 @@ async function askAI(question) {
 
     const userMessage = {
         role: "user",
+        content: question,
         text: question
     };
 
-    const prompt = [...history, userMessage]
-        .map(msg => `${msg.role}: ${msg.text}`)
-        .join("\n");
+    const messages = [
+        ...history.map(msg => ({
+            role: msg.role,
+            content: msg.content || msg.text || ""
+        })),
+        {
+            role: "user",
+            content: question
+        }
+    ];
 
-    const response = await ai.models.generateContent({
-        model: "gemini-flash-latest",
-        contents: prompt,
-    });
-
-    const answer = response.text;
+    const result = await providerManager.generateResponse(messages);
+    const answer = result.content || result.text || "";
 
     const assistantMessage = {
         role: "assistant",
+        content: answer,
         text: answer
     };
 
