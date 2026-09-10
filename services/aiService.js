@@ -1,9 +1,13 @@
 require("dotenv").config();
+const path = require("path");
 
 const providerManager = require("./providerManager");
-const { loadHistory, readActiveSession, saveMessage } = require("./sessionService");
+const { loadHistory, readActiveSession, saveMessage, getSessionObject } = require("./sessionService");
 
-async function askAI(question) {
+const MEMORY_DIR = path.join(__dirname, "../memory");
+const SESSION_DIR = path.join(MEMORY_DIR, "sessions");
+
+async function askAI(question, options = {}) {
     const active = readActiveSession();
     const history = loadHistory();
 
@@ -24,7 +28,17 @@ async function askAI(question) {
         }
     ];
 
-    const result = await providerManager.generateResponse(messages);
+    const sessionFile = path.join(SESSION_DIR, `${active.active}.json`);
+    const session = getSessionObject(active.active, sessionFile);
+
+    const mergedOptions = {
+        provider: options.provider || session.provider,
+        model: options.model || session.model,
+        thinkingLevel: options.thinkingLevel || session.thinkingLevel,
+        ...options
+    };
+
+    const result = await providerManager.generateResponse(messages, mergedOptions);
     const answer = result.content || result.text || "";
 
     const assistantMessage = {
@@ -36,7 +50,15 @@ async function askAI(question) {
     saveMessage(active.active, userMessage);
     saveMessage(active.active, assistantMessage);
 
-    return answer;
+    return {
+        answer,
+        content: answer,
+        text: answer,
+        provider: result.provider,
+        model: result.model,
+        thinkingLevel: result.thinkingLevel,
+        usage: result.usage
+    };
 }
 
 module.exports = { askAI };

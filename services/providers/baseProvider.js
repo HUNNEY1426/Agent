@@ -4,7 +4,18 @@ class BaseProvider {
   }
 
   getName() {
-    throw new Error("getName() must be implemented");
+    return "base";
+  }
+
+  getCapabilities() {
+    return {
+      streaming: false,
+      thinkingLevels: ["low", "medium", "high", "ultra"],
+    };
+  }
+
+  isConfigured() {
+    return true;
   }
 
   async generateResponse(messages = [], options = {}) {
@@ -13,16 +24,22 @@ class BaseProvider {
     );
   }
 
+  async streamResponse(messages, options = {}, onToken = () => {}) {
+    const result = await this.generateResponse(
+      messages,
+      options
+    );
+
+    onToken(result.content || result.text || "");
+    return result;
+  }
+
   async ask(messages, options = {}) {
     return this.generateResponse(messages, options);
   }
 
   async stream(messages, options = {}, onToken = () => {}) {
-    throw new Error("stream() must be implemented");
-  }
-
-  isConfigured() {
-    return true;
+    return this.streamResponse(messages, options, onToken);
   }
 }
 

@@ -6,6 +6,9 @@
     ],
     "ext": "js,json",
     "ignore": [
-        "memory/sessions"
+        "memory/**",
+        "memory/sessions/**",
+        "memory/archives/**",
+        "memory/exports/**"
     ]
 }

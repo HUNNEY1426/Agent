@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const { aiConfig, validateProvider, validateThinkingLevel } = require("../config/aiConfig");
 
 const MEMORY_DIR = path.join(__dirname, "../memory");
 const SESSION_DIR = path.join(MEMORY_DIR, "sessions");
@@ -25,6 +26,9 @@ function getSessionObject(sessionName, file) {
     let session = {
         id: sessionName,
         title: defaultTitle,
+        provider: aiConfig.provider || "gemini",
+        model: aiConfig.model || "gemini-2.0-flash",
+        thinkingLevel: aiConfig.thinkingLevel || "medium",
         createdAt: now,
         updatedAt: now,
         messages: []
@@ -47,6 +51,9 @@ function getSessionObject(sessionName, file) {
                     session = parsed;
                     if (!session.id) session.id = sessionName;
                     if (!session.title) session.title = defaultTitle;
+                    if (!session.provider) session.provider = aiConfig.provider || "gemini";
+                    if (!session.model) session.model = aiConfig.model || "gemini-2.0-flash";
+                    if (!session.thinkingLevel) session.thinkingLevel = aiConfig.thinkingLevel || "medium";
                     if (!session.createdAt) session.createdAt = now;
                     if (!session.updatedAt) session.updatedAt = now;
                     if (!session.messages) session.messages = [];
@@ -96,6 +103,9 @@ function loadHistory() {
         const initialSession = {
             id: active,
             title: active.charAt(0).toUpperCase() + active.slice(1) + " Help",
+            provider: aiConfig.provider || "gemini",
+            model: aiConfig.model || "gemini-2.0-flash",
+            thinkingLevel: aiConfig.thinkingLevel || "medium",
             createdAt: now,
             updatedAt: now,
             messages: []
@@ -207,6 +217,9 @@ async function renameSession(oldId, newId) {
     if (session.title === oldDefaultTitle || !session.title) {
         session.title = newId.charAt(0).toUpperCase() + newId.slice(1) + " Help";
     }
+    if (!session.provider) session.provider = aiConfig.provider || "gemini";
+    if (!session.model) session.model = aiConfig.model || "gemini-2.0-flash";
+    if (!session.thinkingLevel) session.thinkingLevel = aiConfig.thinkingLevel || "medium";
     session.updatedAt = new Date().toISOString();
     
     await fsPromises.writeFile(newFile, JSON.stringify(session, null, 2));
@@ -279,6 +292,9 @@ async function duplicateSession(sourceId, targetId) {
     const now = new Date().toISOString();
     session.id = targetId;
     session.title = targetId.charAt(0).toUpperCase() + targetId.slice(1) + " Help";
+    session.provider = session.provider || aiConfig.provider || "gemini";
+    session.model = session.model || aiConfig.model || "gemini-2.0-flash";
+    session.thinkingLevel = session.thinkingLevel || aiConfig.thinkingLevel || "medium";
     session.createdAt = now;
     session.updatedAt = now;
     if (!session.messages) {
@@ -312,10 +328,50 @@ async function getSessionInfo(sessionId) {
     return {
         id: session.id || sessionId,
         title: session.title || (sessionId.charAt(0).toUpperCase() + sessionId.slice(1) + " Help"),
+        provider: session.provider || aiConfig.provider || "gemini",
+        model: session.model || aiConfig.model || "gemini-2.0-flash",
+        thinkingLevel: session.thinkingLevel || aiConfig.thinkingLevel || "medium",
         createdAt: session.createdAt || new Date().toISOString(),
         updatedAt: session.updatedAt || new Date().toISOString(),
         messageCount: Array.isArray(session.messages) ? session.messages.length : 0,
         isActive: activeSessionName === sessionId
+    };
+}
+
+async function updateSessionSettings(sessionId, settings = {}) {
+    validateSessionId(sessionId);
+    const sessionFile = path.join(SESSION_DIR, `${sessionId}.json`);
+    const session = getSessionObject(sessionId, sessionFile);
+
+    if (settings.provider) {
+        validateProvider(settings.provider);
+        session.provider = settings.provider;
+    }
+    if (settings.model) {
+        session.model = settings.model;
+    }
+    if (settings.thinkingLevel) {
+        validateThinkingLevel(settings.thinkingLevel);
+        session.thinkingLevel = settings.thinkingLevel;
+    }
+
+    session.updatedAt = new Date().toISOString();
+    await fsPromises.writeFile(sessionFile, JSON.stringify(session, null, 2));
+    return {
+        provider: session.provider,
+        model: session.model,
+        thinkingLevel: session.thinkingLevel,
+    };
+}
+
+async function getSessionSettings(sessionId) {
+    validateSessionId(sessionId);
+    const sessionFile = path.join(SESSION_DIR, `${sessionId}.json`);
+    const session = getSessionObject(sessionId, sessionFile);
+    return {
+        provider: session.provider || aiConfig.provider || "gemini",
+        model: session.model || aiConfig.model || "gemini-2.0-flash",
+        thinkingLevel: session.thinkingLevel || aiConfig.thinkingLevel || "medium",
     };
 }
 
@@ -404,10 +460,16 @@ async function exportSession(sessionId, format) {
         const title = session.title || (sessionId.charAt(0).toUpperCase() + sessionId.slice(1) + " Help");
         const createdAt = session.createdAt || new Date().toISOString();
         const updatedAt = session.updatedAt || new Date().toISOString();
+        const provider = session.provider || aiConfig.provider || "gemini";
+        const model = session.model || aiConfig.model || "gemini-2.0-flash";
+        const thinkingLevel = session.thinkingLevel || aiConfig.thinkingLevel || "medium";
         const messages = Array.isArray(session.messages) ? session.messages : [];
 
         let md = `# ${title}\n\n`;
         md += `- **ID**: ${sessionId}\n`;
+        md += `- **Provider**: ${provider}\n`;
+        md += `- **Model**: ${model}\n`;
+        md += `- **Thinking Level**: ${thinkingLevel}\n`;
         md += `- **Created At**: ${createdAt}\n`;
         md += `- **Updated At**: ${updatedAt}\n\n`;
         md += `## Messages\n\n`;
@@ -477,6 +539,9 @@ async function importSession(sessionData) {
     const formattedSession = {
         id: session.id,
         title: session.title || (session.id.charAt(0).toUpperCase() + session.id.slice(1) + " Help"),
+        provider: session.provider || aiConfig.provider || "gemini",
+        model: session.model || aiConfig.model || "gemini-2.0-flash",
+        thinkingLevel: session.thinkingLevel || aiConfig.thinkingLevel || "medium",
         createdAt: session.createdAt || now,
         updatedAt: session.updatedAt || now,
         messages: (session.messages || []).map(msg => ({
@@ -551,5 +616,8 @@ module.exports = {
     exportSession,
     importSession,
     archiveSession,
-    restoreSession
+    restoreSession,
+    updateSessionSettings,
+    getSessionSettings,
+    getSessionObject
 };
