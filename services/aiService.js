@@ -1,7 +1,9 @@
 require("dotenv").config();
 const path = require("path");
 
-const providerManager = require("./providerManager");
+const providerManager  = require("./providerManager");
+const pdfService       = require("./pdf/pdfService");
+const historyService   = require("./history/historyService");
 const { loadHistory, readActiveSession, saveMessage, getSessionObject } = require("./sessionService");
 
 const MEMORY_DIR = path.join(__dirname, "../memory");
@@ -17,14 +19,70 @@ async function askAI(question, options = {}) {
         text: question
     };
 
+    const pdfStatus = pdfService.getStatus();
+    let finalUserPrompt = question;
+    let citations        = [];
+    let pdfUsed          = false;
+    let historyCitations = [];
+    let historyUsed      = false;
+
+    // ── PDF context ──────────────────────────────────────────
+    let pdfContextText = "";
+    if (pdfStatus.enabled) {
+        const pdfContext = pdfService.buildContext(question);
+        citations = pdfContext.citations || [];
+        pdfUsed   = pdfContext.hasContext;
+        if (pdfContext.hasContext) {
+            pdfContextText = pdfContext.contextText;
+        }
+    }
+
+    // ── History context ──────────────────────────────────────
+    let historyContextText = "";
+    if (historyService.isEnabled()) {
+        const histCtx = historyService.buildContext(question, active.active);
+        historyUsed      = histCtx.hasContext;
+        historyCitations = histCtx.citations || [];
+        if (histCtx.hasContext) {
+            historyContextText = histCtx.contextText;
+        }
+    }
+
+    // ── Compose final prompt ─────────────────────────────────
+    if (pdfContextText || historyContextText) {
+        const parts = [];
+        parts.push("You are answering questions using additional context provided below.");
+        parts.push("Use the context to give accurate, grounded answers.");
+        parts.push("If the answer cannot be found in the context, say so clearly.\n");
+
+        if (pdfContextText) {
+            parts.push("--- Relevant PDF context ---");
+            parts.push(pdfContextText);
+            parts.push("");
+        }
+
+        if (historyContextText) {
+            parts.push("--- Relevant past conversation context ---");
+            parts.push(historyContextText);
+            parts.push("");
+        }
+
+        parts.push("User question:");
+        parts.push(question);
+        finalUserPrompt = parts.join("\n");
+    } else if (pdfStatus.enabled) {
+        // PDF mode on but nothing found
+        finalUserPrompt = `You are answering questions strictly using the active PDF Knowledge Base.\n\nUser question:\n${question}\n\nNo relevant context was found in the active PDF document(s).\nClearly state: "I could not find this information in the PDF."`;
+    }
+
     const messages = [
         ...history.map(msg => ({
-            role: msg.role,
+            role   : msg.role,
             content: msg.content || msg.text || ""
         })),
         {
-            role: "user",
-            content: question
+            role   : "user",
+            content: finalUserPrompt
         }
     ];
 
@@ -52,12 +110,16 @@ async function askAI(question, options = {}) {
 
     return {
         answer,
-        content: answer,
-        text: answer,
-        provider: result.provider,
-        model: result.model,
-        thinkingLevel: result.thinkingLevel,
-        usage: result.usage
+        content         : answer,
+        text            : answer,
+        provider        : result.provider,
+        model           : result.model,
+        thinkingLevel   : result.thinkingLevel,
+        usage           : result.usage,
+        citations,
+        pdfUsed,
+        historyCitations,
+        historyUsed
     };
 }
 

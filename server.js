@@ -4,6 +4,8 @@ const express = require("express");
 const fileRoutes = require("./routes/file");
 const shellRoutes = require("./routes/shell");
 const aiRoutes = require("./routes/ai");
+const pdfRoutes     = require("./routes/pdf");
+const historyRoutes = require("./routes/history");
 
 const app = express();
 
@@ -25,6 +27,8 @@ app.use(express.json({ limit: "1mb" }));
 app.use("/ai", aiRoutes);
 app.use("/file", fileRoutes);
 app.use("/shell", shellRoutes);
+app.use("/pdf",     pdfRoutes);
+app.use("/history", historyRoutes);
 
 app.get("/", (req, res) => {
     res.json({

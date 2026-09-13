@@ -46,7 +46,11 @@ router.post("/ask", async (req, res) => {
             provider: result.provider,
             model: result.model,
             thinkingLevel: result.thinkingLevel,
-            usage: result.usage
+            usage: result.usage,
+            citations: result.citations || [],
+            pdfUsed: !!result.pdfUsed,
+            historyCitations: result.historyCitations || [],
+            historyUsed: !!result.historyUsed
         });
 
     } catch (error) {

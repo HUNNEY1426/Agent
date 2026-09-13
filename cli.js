@@ -562,7 +562,256 @@ program
             console.log(chalk.cyan(res.data.message));
         } catch (err) {
             spinner.fail("Error");
-            console.log(err.response?.data?.error || err.response?.data || err.message);
+            console.log(err.message === "Session not found in archives" ? 404 : err.message === "Session already exists in active sessions" ? 409 : 400).json({
+                error: err.message
+            });
+        }
+    });
+
+// PDF Knowledge Base Commands
+program
+    .command("pdf <action> [args...]")
+    .description("PDF Knowledge Base operations (add, list, info, use, search, remove, clear, off, status)")
+    .action(async (action, args) => {
+        const subCmd = (action || "").toLowerCase();
+        const argStr = (args || []).join(" ").trim();
+        const path = require("path");
+
+        if (subCmd === "add") {
+            if (!argStr) {
+                console.log(chalk.red("Usage: node cli.js pdf add <path>"));
+                return;
+            }
+            const targetPath = argStr.replace(/^['"]|['"]$/g, "");
+            console.log(`\n📄 PDF: ${path.basename(targetPath)}`);
+            console.log("📖 Extracting text...");
+            console.log("🧠 Creating knowledge index...");
+            try {
+                const res = await axios.post("http://localhost:3000/pdf/add", { path: targetPath });
+                if (res.data.duplicate) {
+                    console.log(chalk.yellow(`📄 PDF already indexed.\n`));
+                } else {
+                    console.log(chalk.green("✅ PDF added successfully\n"));
+                }
+            } catch (err) {
+                console.log(chalk.red(`❌ ${err.response?.data?.error || err.message}\n`));
+            }
+
+        } else if (subCmd === "list") {
+            try {
+                const res = await axios.get("http://localhost:3000/pdf/list");
+                const docs = res.data.documents || [];
+                console.log("\n" + chalk.bold("📚 PDF Knowledge Base") + "\n");
+                if (docs.length === 0) {
+                    console.log(chalk.yellow("No PDFs indexed yet. Use node cli.js pdf add <path> to add a PDF.\n"));
+                } else {
+                    docs.forEach((d, idx) => {
+                        const activeTag = d.isActive ? chalk.green(" (active)") : "";
+                        console.log(`${idx + 1}. ${d.originalFilename}${activeTag}`);
+                    });
+                    console.log("");
+                }
+            } catch (err) {
+                console.log(chalk.red(`❌ ${err.response?.data?.error || err.message}\n`));
+            }
+
+        } else if (subCmd === "info") {
+            if (!argStr) {
+                console.log(chalk.red("Usage: node cli.js pdf info <name>"));
+            } else {
+                try {
+                    const res = await axios.get(`http://localhost:3000/pdf/info/${encodeURIComponent(argStr)}`);
+                    const info = res.data;
+                    console.log("\n" + chalk.bold("📄 PDF Information") + "\n");
+                    console.log(`📄 Name:            ${chalk.cyan(info.originalFilename)}`);
+                    console.log(`📁 Original path:   ${chalk.gray(info.filePath)}`);
+                    console.log(`📑 Pages:           ${info.pageCount}`);
+                    console.log(`🧩 Chunks:          ${info.chunkCount}`);
+                    console.log(`📅 Added:           ${info.addedAt}`);
+                    console.log(`📅 Updated:         ${info.updatedAt}`);
+                    console.log(`📊 Indexed status:  ${chalk.green("Ready")}\n`);
+                } catch (err) {
+                    console.log(chalk.red(`❌ ${err.response?.data?.error || err.message}\n`));
+                }
+            }
+
+        } else if (subCmd === "use") {
+            if (!argStr) {
+                console.log(chalk.red("Usage: node cli.js pdf use <name|all>"));
+            } else {
+                try {
+                    const res = await axios.post("http://localhost:3000/pdf/use", { name: argStr });
+                    console.log(chalk.green(`\n✅ Active PDF: ${res.data.activeDocumentName}\n`));
+                } catch (err) {
+                    console.log(chalk.red(`❌ ${err.response?.data?.error || err.message}\n`));
+                }
+            }
+
+        } else if (subCmd === "search") {
+            if (!argStr) {
+                console.log(chalk.red("Usage: node cli.js pdf search <query>"));
+            } else {
+                try {
+                    console.log(chalk.cyan("\n🔎 Searching PDF..."));
+                    const res = await axios.get(`http://localhost:3000/pdf/search/${encodeURIComponent(argStr)}`);
+                    const results = res.data || [];
+                    console.log("\n" + chalk.bold("🔎 PDF Search Results") + "\n");
+                    if (results.length === 0) {
+                        console.log(chalk.yellow("No relevant PDF content found.\n"));
+                    } else {
+                        results.forEach((r, idx) => {
+                            console.log(`${idx + 1}. ${chalk.cyan(r.documentName)} — Page ${r.pageNumber}`);
+                            console.log(chalk.gray(`   ${r.text.replace(/\n/g, " ").slice(0, 200)}...`));
+                            console.log("");
+                        });
+                    }
+                } catch (err) {
+                    console.log(chalk.red(`❌ ${err.response?.data?.error || err.message}\n`));
+                }
+            }
+
+        } else if (subCmd === "remove") {
+            if (!argStr) {
+                console.log(chalk.red("Usage: node cli.js pdf remove <name>"));
+            } else {
+                try {
+                    const res = await axios.delete(`http://localhost:3000/pdf/remove/${encodeURIComponent(argStr)}`);
+                    console.log(chalk.green(`\n✅ Removed ${res.data.removedName} successfully\n`));
+                } catch (err) {
+                    console.log(chalk.red(`❌ ${err.response?.data?.error || err.message}\n`));
+                }
+            }
+
+        } else if (subCmd === "clear") {
+            try {
+                await axios.post("http://localhost:3000/pdf/clear");
+                console.log(chalk.green("\n✅ PDF Knowledge Base cleared successfully\n"));
+            } catch (err) {
+                console.log(chalk.red(`❌ ${err.response?.data?.error || err.message}\n`));
+            }
+
+        } else if (subCmd === "off") {
+            try {
+                await axios.post("http://localhost:3000/pdf/off");
+                console.log(chalk.yellow("\n📚 PDF knowledge: disabled\n"));
+            } catch (err) {
+                console.log(chalk.red(`❌ ${err.response?.data?.error || err.message}\n`));
+            }
+
+        } else if (subCmd === "status") {
+            try {
+                const res = await axios.get("http://localhost:3000/pdf/status");
+                const s = res.data;
+                console.log("\n" + chalk.bold("📚 PDF Knowledge Base") + "\n");
+                console.log(`PDF Knowledge: ${s.enabled ? chalk.green("enabled") : chalk.red("disabled")}`);
+                console.log(`Documents:     ${s.totalDocuments}`);
+                console.log(`Active:        ${chalk.cyan(s.activeDocumentName)}\n`);
+            } catch (err) {
+                console.log(chalk.red(`❌ ${err.response?.data?.error || err.message}\n`));
+            }
+
+        } else {
+            console.log(chalk.red(`Unknown action: ${subCmd}. Available: add, list, info, use, search, remove, clear, off, status`));
+        }
+    });
+
+// Chat History Knowledge Base Commands
+program
+    .command("history [action] [args...]")
+    .description("Chat History Knowledge Base operations (search, status, use, clear)")
+    .action(async (action, args) => {
+        const subCmd = (action || "").toLowerCase();
+        const argStr = (args || []).join(" ").trim();
+
+        if (subCmd === "status") {
+            try {
+                const res = await axios.get("http://localhost:3000/history/status");
+                const s = res.data;
+                console.log("\n" + chalk.bold("📚 Chat History Knowledge Base") + "\n");
+                console.log(`History RAG:      ${s.enabled ? chalk.green("enabled") : chalk.red("disabled")}`);
+                console.log(`Indexed Sessions: ${s.totalSessions} (${(s.sessions || []).join(", ")})`);
+                console.log(`Total Messages:   ${s.totalMessages}`);
+                console.log(`Total Terms:      ${s.totalTerms}\n`);
+            } catch (err) {
+                console.log(chalk.red(`❌ ${err.response?.data?.error || err.message}\n`));
+            }
+
+        } else if (subCmd === "search") {
+            if (!argStr) {
+                console.log(chalk.red("Usage: node cli.js history search <query>"));
+                return;
+            }
+            try {
+                console.log(chalk.cyan("\n🔎 Searching Chat History..."));
+                const res = await axios.get(`http://localhost:3000/history/search?q=${encodeURIComponent(argStr)}`);
+                const results = res.data?.results || [];
+                console.log("\n" + chalk.bold(`🔎 Chat History Search Results for "${argStr}"`) + "\n");
+                if (results.length === 0) {
+                    console.log(chalk.yellow("No relevant past conversation found.\n"));
+                } else {
+                    results.forEach((r, idx) => {
+                        console.log(`${idx + 1}. [${chalk.cyan(r.sessionTitle)} | ${chalk.yellow(r.role)}] (Score: ${r.score.toFixed(2)})`);
+                        console.log(chalk.gray(`   ${r.content.replace(/\n/g, " ").slice(0, 250)}${r.content.length > 250 ? "..." : ""}`));
+                        console.log("");
+                    });
+                }
+            } catch (err) {
+                console.log(chalk.red(`❌ ${err.response?.data?.error || err.message}\n`));
+            }
+
+        } else if (subCmd === "use") {
+            const mode = (argStr || "").toLowerCase();
+            if (mode === "on" || mode === "true" || mode === "enable") {
+                try {
+                    await axios.post("http://localhost:3000/history/use", { mode: "on" });
+                    console.log(chalk.green(`\n✅ History RAG: enabled\n`));
+                } catch (err) {
+                    console.log(chalk.red(`❌ ${err.response?.data?.error || err.message}\n`));
+                }
+            } else if (mode === "off" || mode === "false" || mode === "disable") {
+                try {
+                    await axios.post("http://localhost:3000/history/use", { mode: "off" });
+                    console.log(chalk.yellow(`\n🔇 History RAG: disabled\n`));
+                } catch (err) {
+                    console.log(chalk.red(`❌ ${err.response?.data?.error || err.message}\n`));
+                }
+            } else {
+                console.log(chalk.red("Usage: node cli.js history use <on|off>"));
+            }
+
+        } else if (subCmd === "clear") {
+            try {
+                const res = await axios.post("http://localhost:3000/history/clear");
+                console.log(chalk.green("\n✅ History Knowledge Index cleared and refreshed successfully\n"));
+                if (res.data.stats) {
+                    console.log(chalk.gray(`   Sessions: ${res.data.stats.totalSessions} | Messages: ${res.data.stats.totalMessages}\n`));
+                }
+            } catch (err) {
+                console.log(chalk.red(`❌ ${err.response?.data?.error || err.message}\n`));
+            }
+
+        } else if (!subCmd || subCmd === "help") {
+            try {
+                const res = await axios.get("http://localhost:3000/history/status");
+                const s = res.data;
+                console.log("\n" + chalk.bold("📚 Chat History Knowledge Base") + "\n");
+                console.log(`History RAG:      ${s.enabled ? chalk.green("enabled") : chalk.red("disabled")}`);
+                console.log(`Indexed Sessions: ${s.totalSessions} (${(s.sessions || []).join(", ")})`);
+                console.log(`Total Messages:   ${s.totalMessages}`);
+                console.log(`Total Terms:      ${s.totalTerms}\n`);
+            } catch (err) {
+                // Server might be starting up
+            }
+            console.log(
+                chalk.bold("Usage:") + "\n" +
+                "  node cli.js history                   - Show history knowledge status & summary\n" +
+                "  node cli.js history status            - View detailed history RAG status\n" +
+                "  node cli.js history search <query>    - Search past chat conversations\n" +
+                "  node cli.js history use <on|off>      - Enable or disable history RAG\n" +
+                "  node cli.js history clear             - Clear and refresh history knowledge index\n"
+            );
+        } else {
+            console.log(chalk.red(`Unknown action: ${subCmd}. Available: status, search, use, clear`));
         }
     });
 
@@ -578,69 +827,82 @@ async function startInteractiveChat() {
     console.log(chalk.bold.cyan("===========================================\n"));
 
     // ── Voice loop helper ──────────────────────────────────────────────────
+    let _voiceLoopRunning = false;
+
     async function runVoiceLoop(rl) {
+        if (_voiceLoopRunning) return;
         const status = voiceService.getStatus();
         if (!status.voiceEnabled) return;
 
-        process.stdout.write(chalk.magenta("\n🎤 Listening... (Press SPACE to send, ESC to mute/exit)\n"));
+        _voiceLoopRunning = true;
 
-        while (voiceService.getStatus().voiceEnabled) {
-            let transcript = "";
-            try {
-                transcript = await voiceService.listenOnce();
-            } catch (err) {
-                if (err.message.includes("Recorded file is empty")) {
-                    // Ignore empty file error if voice was disabled
-                    if (!voiceService.getStatus().voiceEnabled) break;
-                    console.log(chalk.yellow("\n⚠️ No audio detected. Try speaking louder.\n"));
-                } else {
-                    console.log(chalk.red(`\n❌ Voice error: ${err.message}\n`));
-                    voiceService.disableVoice();
-                    break;
+        try {
+            console.log(chalk.magenta("\n🎤 Listening..."));
+
+            while (voiceService.getStatus().voiceEnabled) {
+                let transcript = "";
+                try {
+                    transcript = await voiceService.listenOnce({
+                        onRecordingStop: () => {
+                            console.log(chalk.gray("\n⏹ Recording stopped"));
+                            console.log(chalk.cyan("🎧 Transcribing..."));
+                        }
+                    });
+                } catch (err) {
+                    if (err.message.includes("Recorded file is empty")) {
+                        if (!voiceService.getStatus().voiceEnabled) break;
+                        console.log(chalk.yellow("\n⚠️ No audio detected. Try speaking louder.\n"));
+                    } else if (
+                        err.message.includes("Transcription already in progress") ||
+                        err.message.includes("Recording is already in progress")
+                    ) {
+                        // Ignore transient concurrency locks
+                    } else {
+                        console.log(chalk.red(`\n${err.message}\n`));
+                        voiceService.disableVoice();
+                        break;
+                    }
                 }
-            }
 
-            if (!transcript || !transcript.trim()) {
-                if (voiceService.getStatus().voiceEnabled) {
-                    process.stdout.write(chalk.magenta("\n🎤 Listening... (Press SPACE to send, ESC to mute/exit)\n"));
+                if (!transcript || !transcript.trim()) {
+                    if (voiceService.getStatus().voiceEnabled) {
+                        console.log(chalk.magenta("\n🎤 Listening..."));
+                    }
+                    continue;
                 }
-                continue;
-            }
 
-            console.log(chalk.bold.yellow(`\n📝 You said: "${transcript}"\n`));
+                console.log(chalk.bold.yellow(`\n📝 You said: ${transcript}\n`));
 
-            // Send transcript to AI exactly like normal text input
-            const spinner = ora("AI Thinking...").start();
-            try {
-                const res = await axios.post("http://localhost:3000/ai/ask", {
-                    question: transcript,
-                    provider: currentSettings.provider,
-                    model: currentSettings.model,
-                    thinkingLevel: currentSettings.thinkingLevel,
-                });
-                spinner.stop();
-                const respModel = res.data.model || currentSettings.model;
-                const respThinking = res.data.thinkingLevel || currentSettings.thinkingLevel;
-                console.log(chalk.bold.green(`AI [${respModel} | ${respThinking}] >`));
-                console.log(chalk.cyan(res.data.answer) + "\n");
-                // TTS — read AI response aloud if enabled
-                voiceService.speak(res.data.answer);
-            } catch (err) {
-                spinner.fail("Error");
-                if (err.response) {
-                    console.log(chalk.red("Server Error:"), err.response.data);
-                } else {
-                    console.log(chalk.red("Cannot connect to server. Make sure Express server is running.\n"));
+                const spinner = ora("AI Thinking...").start();
+                try {
+                    const res = await axios.post("http://localhost:3000/ai/ask", {
+                        question: transcript,
+                        provider: currentSettings.provider,
+                        model: currentSettings.model,
+                        thinkingLevel: currentSettings.thinkingLevel,
+                    });
+                    spinner.stop();
+                    console.log(chalk.bold.green("🤖 AI:"));
+                    console.log(chalk.cyan(res.data.answer) + "\n");
+
+                    voiceService.speak(res.data.answer);
+                } catch (err) {
+                    spinner.fail("Error");
+                    if (err.response) {
+                        console.log(chalk.red("Server Error:"), err.response.data);
+                    } else {
+                        console.log(chalk.red("Cannot connect to server. Make sure Express server is running.\n"));
+                    }
                 }
-            }
 
-            // Check again before next iteration
-            if (!voiceService.getStatus().voiceEnabled) break;
-            process.stdout.write(chalk.magenta("\n🎤 Listening... (Press SPACE to send, ESC to mute/exit)\n"));
+                if (!voiceService.getStatus().voiceEnabled) break;
+                console.log(chalk.magenta("\n🎤 Listening..."));
+            }
+        } finally {
+            _voiceLoopRunning = false;
         }
 
         console.log(chalk.yellow("🔇 Voice mode stopped.\n"));
-        // Re-prompt so user can keep typing
         rl.prompt(true);
     }
 
@@ -674,17 +936,19 @@ async function startInteractiveChat() {
                 voiceService.disableVoice();
                 process.stdout.write(chalk.yellow("\n🔇 Muting..."));
             }
-            // SPACE: Finish recording early and send
+            // SPACE: Stop recording if currently recording
             else if (key.name === 'space') {
-                process.stdout.write(chalk.cyan("\n📤 Sending audio..."));
-                voiceService.finishRecording();
+                if (voiceService.isRecording()) {
+                    voiceService.finishRecording();
+                }
             }
         } else {
-            // Unmute / Enable if Ctrl+V is pressed
+            // Ctrl+V: Enable Voice Mode
             if (key.ctrl && key.name === 'v') {
                 const depCheck = voiceService.checkDependencies();
                 if (depCheck.ok) {
                     voiceService.enableVoice();
+                    console.log(chalk.magenta("\n🎤 Using Windows default microphone"));
                     setImmediate(() => runVoiceLoop(rl));
                 } else {
                     console.log(chalk.red("\n" + depCheck.message + "\n"));
@@ -852,12 +1116,10 @@ async function startInteractiveChat() {
                             const s = voiceService.getStatus();
                             console.log(
                                 "\n" +
-                                chalk.bold("Voice Status") + "\n" +
-                                `  Voice enabled   : ${s.voiceEnabled ? chalk.green("yes") : chalk.red("no")}\n` +
-                                `  TTS enabled     : ${s.ttsEnabled ? chalk.green("yes") : chalk.red("no")}\n` +
-                                `  Language        : ${chalk.cyan(s.language)}\n` +
-                                `  Active device   : ${chalk.cyan(s.selectedDevice)}\n` +
-                                `  Loop active     : ${s.loopActive ? chalk.green("yes") : chalk.gray("no")}\n`
+                                `🎤 Voice enabled : ${s.voiceEnabled ? chalk.green("yes") : chalk.red("no")}\n` +
+                                `🎤 Microphone    : ${chalk.cyan(s.selectedDevice)}\n` +
+                                `🔊 TTS enabled   : ${s.ttsEnabled ? chalk.green("yes") : chalk.red("no")}\n` +
+                                `🌐 Language      : ${chalk.cyan(s.language)}\n`
                             );
 
                         } else if (subCmd === "devices") {
@@ -867,8 +1129,8 @@ async function startInteractiveChat() {
                                 const status = voiceService.getStatus();
                                 console.log("\n" + chalk.bold(`🎤 Audio input devices (${devs.length} found)`) + "\n");
                                 devs.forEach((d, i) => {
-                                    const active = (status.selectedDevice !== "(auto)" && status.selectedDevice === d.name)
-                                        || (status.selectedDevice === "(auto)" && i === 0);
+                                    const active = (status.selectedDevice !== "Windows Default" && status.selectedDevice === d.name)
+                                        || (status.selectedDevice === "Windows Default" && i === 0);
                                     const marker = active ? chalk.green(" ◀ active") : "";
                                     console.log(`  ${i + 1}. ${chalk.cyan(d.name)}${marker}`);
                                 });
@@ -929,24 +1191,8 @@ async function startInteractiveChat() {
                             if (!depCheck.ok) {
                                 console.log(chalk.red("\n" + depCheck.message + "\n"));
                             } else {
-                                // Show detected device so user knows which mic will be used
-                                try {
-                                    const devs = voiceService.listAudioDevices();
-                                    const status = voiceService.getStatus();
-                                    const activeDev = status.selectedDevice !== "(auto)"
-                                        ? status.selectedDevice
-                                        : devs[0].name;
-                                    console.log(chalk.gray(`\n  Microphone: ${activeDev}`));
-                                    if (devs.length > 1) {
-                                        console.log(chalk.gray(`  (${devs.length} devices found — use /voice devices to list, /voice device <name> to switch)\n`));
-                                    } else {
-                                        console.log("");
-                                    }
-                                } catch {}
-
                                 voiceService.enableVoice();
-                                console.log(chalk.green(`🎤 Voice mode enabled (language: ${voiceService.getStatus().language})\n`));
-                                console.log(chalk.gray("  Max 1 minute per utterance — auto-stops after 1 second of silence.\n"));
+                                console.log(chalk.magenta("\n🎤 Using Windows default microphone"));
                                 setImmediate(() => runVoiceLoop(rl));
                             }
                         }
@@ -970,6 +1216,283 @@ async function startInteractiveChat() {
                         break;
                     }
 
+                    case "pdf": {
+                        const subCmd = (parts[1] || "").toLowerCase();
+                        const subArg = parts.slice(2).join(" ").trim();
+                        const path = require("path");
+
+                        if (subCmd === "add") {
+                            if (!subArg) {
+                                console.log(chalk.red("Usage: /pdf add <path>\n"));
+                            } else {
+                                const targetPath = subArg.replace(/^['"]|['"]$/g, "");
+                                console.log(`\n📄 PDF: ${path.basename(targetPath)}`);
+                                console.log("📖 Extracting text...");
+                                console.log("🧠 Creating knowledge index...");
+                                try {
+                                    const res = await axios.post("http://localhost:3000/pdf/add", { path: targetPath });
+                                    if (res.data.duplicate) {
+                                        console.log(chalk.yellow(`📄 PDF already indexed.\n`));
+                                    } else {
+                                        console.log(chalk.green("✅ PDF added successfully\n"));
+                                    }
+                                } catch (err) {
+                                    console.log(chalk.red(`❌ ${err.response?.data?.error || err.message}\n`));
+                                }
+                            }
+
+                        } else if (subCmd === "list") {
+                            try {
+                                const res = await axios.get("http://localhost:3000/pdf/list");
+                                const docs = res.data.documents || [];
+                                console.log("\n" + chalk.bold("📚 PDF Knowledge Base") + "\n");
+                                if (docs.length === 0) {
+                                    console.log(chalk.yellow("No PDFs indexed yet. Use /pdf add <path> to add a PDF.\n"));
+                                } else {
+                                    docs.forEach((d, idx) => {
+                                        const activeTag = d.isActive ? chalk.green(" (active)") : "";
+                                        console.log(`${idx + 1}. ${d.originalFilename}${activeTag}`);
+                                    });
+                                    console.log("");
+                                }
+                            } catch (err) {
+                                console.log(chalk.red(`❌ ${err.response?.data?.error || err.message}\n`));
+                            }
+
+                        } else if (subCmd === "info") {
+                            if (!subArg) {
+                                console.log(chalk.red("Usage: /pdf info <name>\n"));
+                            } else {
+                                try {
+                                    const res = await axios.get(`http://localhost:3000/pdf/info/${encodeURIComponent(subArg)}`);
+                                    const info = res.data;
+                                    console.log("\n" + chalk.bold("📄 PDF Information") + "\n");
+                                    console.log(`📄 Name:            ${chalk.cyan(info.originalFilename)}`);
+                                    console.log(`📁 Original path:   ${chalk.gray(info.filePath)}`);
+                                    console.log(`📑 Pages:           ${info.pageCount}`);
+                                    console.log(`🧩 Chunks:          ${info.chunkCount}`);
+                                    console.log(`📅 Added:           ${info.addedAt}`);
+                                    console.log(`📅 Updated:         ${info.updatedAt}`);
+                                    console.log(`📊 Indexed status:  ${chalk.green("Ready")}\n`);
+                                } catch (err) {
+                                    console.log(chalk.red(`❌ ${err.response?.data?.error || err.message}\n`));
+                                }
+                            }
+
+                        } else if (subCmd === "use") {
+                            if (!subArg) {
+                                console.log(chalk.red("Usage: /pdf use <name|all>\n"));
+                            } else {
+                                try {
+                                    const res = await axios.post("http://localhost:3000/pdf/use", { name: subArg });
+                                    console.log(chalk.green(`\n✅ Active PDF: ${res.data.activeDocumentName}\n`));
+                                } catch (err) {
+                                    console.log(chalk.red(`❌ ${err.response?.data?.error || err.message}\n`));
+                                }
+                            }
+
+                        } else if (subCmd === "search") {
+                            if (!subArg) {
+                                console.log(chalk.red("Usage: /pdf search <query>\n"));
+                            } else {
+                                try {
+                                    console.log(chalk.cyan("\n🔎 Searching PDF..."));
+                                    const res = await axios.get(`http://localhost:3000/pdf/search/${encodeURIComponent(subArg)}`);
+                                    const results = res.data || [];
+                                    console.log("\n" + chalk.bold("🔎 PDF Search Results") + "\n");
+                                    if (results.length === 0) {
+                                        console.log(chalk.yellow("No relevant PDF content found.\n"));
+                                    } else {
+                                        results.forEach((r, idx) => {
+                                            console.log(`${idx + 1}. ${chalk.cyan(r.documentName)} — Page ${r.pageNumber}`);
+                                            console.log(chalk.gray(`   ${r.text.replace(/\n/g, " ").slice(0, 200)}...`));
+                                            console.log("");
+                                        });
+                                    }
+                                } catch (err) {
+                                    console.log(chalk.red(`❌ ${err.response?.data?.error || err.message}\n`));
+                                }
+                            }
+
+                        } else if (subCmd === "remove") {
+                            if (!subArg) {
+                                console.log(chalk.red("Usage: /pdf remove <name>\n"));
+                            } else {
+                                rl.question(chalk.yellow(`⚠️ Remove ${subArg}? (y/n) `), async (ans) => {
+                                    if (ans.trim().toLowerCase() === "y" || ans.trim().toLowerCase() === "yes") {
+                                        try {
+                                            const res = await axios.delete(`http://localhost:3000/pdf/remove/${encodeURIComponent(subArg)}`);
+                                            console.log(chalk.green(`\n✅ Removed ${res.data.removedName} successfully\n`));
+                                        } catch (err) {
+                                            console.log(chalk.red(`❌ ${err.response?.data?.error || err.message}\n`));
+                                        }
+                                    } else {
+                                        console.log(chalk.gray("\nCancelled.\n"));
+                                    }
+                                    askQuestion();
+                                });
+                                return;
+                            }
+
+                        } else if (subCmd === "clear") {
+                            rl.question(chalk.yellow("⚠️ Clear complete PDF knowledge base? (y/n) "), async (ans) => {
+                                if (ans.trim().toLowerCase() === "y" || ans.trim().toLowerCase() === "yes") {
+                                    try {
+                                        await axios.post("http://localhost:3000/pdf/clear");
+                                        console.log(chalk.green("\n✅ PDF Knowledge Base cleared successfully\n"));
+                                    } catch (err) {
+                                        console.log(chalk.red(`❌ ${err.response?.data?.error || err.message}\n`));
+                                    }
+                                } else {
+                                    console.log(chalk.gray("\nCancelled.\n"));
+                                }
+                                askQuestion();
+                            });
+                            return;
+
+                        } else if (subCmd === "off") {
+                            try {
+                                await axios.post("http://localhost:3000/pdf/off");
+                                console.log(chalk.yellow("\n📚 PDF knowledge: disabled\n"));
+                            } catch (err) {
+                                console.log(chalk.red(`❌ ${err.response?.data?.error || err.message}\n`));
+                            }
+
+                        } else if (subCmd === "status") {
+                            try {
+                                const res = await axios.get("http://localhost:3000/pdf/status");
+                                const s = res.data;
+                                console.log("\n" + chalk.bold("📚 PDF Knowledge Base") + "\n");
+                                console.log(`PDF Knowledge: ${s.enabled ? chalk.green("enabled") : chalk.red("disabled")}`);
+                                console.log(`Documents:     ${s.totalDocuments}`);
+                                console.log(`Active:        ${chalk.cyan(s.activeDocumentName)}\n`);
+                            } catch (err) {
+                                console.log(chalk.red(`❌ ${err.response?.data?.error || err.message}\n`));
+                            }
+
+                        } else {
+                            console.log(
+                                "\n" +
+                                chalk.bold("PDF Commands:") +
+                                "\n" +
+                                "  /pdf add <path>               - Add and index a PDF file\n" +
+                                "  /pdf list                     - List all indexed PDFs\n" +
+                                "  /pdf info <name>              - View metadata and info for a PDF\n" +
+                                "  /pdf use <name|all>           - Select active PDF or search across all PDFs\n" +
+                                "  /pdf search <query>           - Search PDF knowledge without invoking AI\n" +
+                                "  /pdf remove <name>            - Remove a PDF document\n" +
+                                "  /pdf clear                    - Clear complete PDF knowledge base\n" +
+                                "  /pdf off                      - Disable PDF mode without deleting index\n" +
+                                "  /pdf status                   - View PDF knowledge status\n"
+                            );
+                        }
+                        break;
+                    }
+
+                    case "history": {
+                        const subCmd = (parts[1] || "").toLowerCase();
+                        const subArg = parts.slice(2).join(" ").trim();
+
+                        if (subCmd === "status") {
+                            try {
+                                const res = await axios.get("http://localhost:3000/history/status");
+                                const s = res.data;
+                                console.log("\n" + chalk.bold("📚 Chat History Knowledge Base") + "\n");
+                                console.log(`History RAG:      ${s.enabled ? chalk.green("enabled") : chalk.red("disabled")}`);
+                                console.log(`Indexed Sessions: ${s.totalSessions} (${(s.sessions || []).join(", ")})`);
+                                console.log(`Total Messages:   ${s.totalMessages}`);
+                                console.log(`Total Terms:      ${s.totalTerms}\n`);
+                            } catch (err) {
+                                console.log(chalk.red(`❌ ${err.response?.data?.error || err.message}\n`));
+                            }
+                        } else if (subCmd === "search") {
+                            if (!subArg) {
+                                console.log(chalk.red("Usage: /history search <query>\n"));
+                            } else {
+                                try {
+                                    console.log(chalk.cyan("\n🔎 Searching Chat History..."));
+                                    const res = await axios.get(`http://localhost:3000/history/search?q=${encodeURIComponent(subArg)}`);
+                                    const results = res.data?.results || [];
+                                    console.log("\n" + chalk.bold(`🔎 Chat History Search Results for "${subArg}"`) + "\n");
+                                    if (results.length === 0) {
+                                        console.log(chalk.yellow("No relevant past conversation found.\n"));
+                                    } else {
+                                        results.forEach((r, idx) => {
+                                            console.log(`${idx + 1}. [${chalk.cyan(r.sessionTitle)} | ${chalk.yellow(r.role)}] (Score: ${r.score.toFixed(2)})`);
+                                            console.log(chalk.gray(`   ${r.content.replace(/\n/g, " ").slice(0, 250)}${r.content.length > 250 ? "..." : ""}`));
+                                            console.log("");
+                                        });
+                                    }
+                                } catch (err) {
+                                    console.log(chalk.red(`❌ ${err.response?.data?.error || err.message}\n`));
+                                }
+                            }
+                        } else if (subCmd === "use") {
+                            const mode = (subArg || "").toLowerCase();
+                            if (mode === "on" || mode === "true" || mode === "enable") {
+                                try {
+                                    await axios.post("http://localhost:3000/history/use", { mode: "on" });
+                                    console.log(chalk.green(`\n✅ History RAG: enabled\n`));
+                                } catch (err) {
+                                    console.log(chalk.red(`❌ ${err.response?.data?.error || err.message}\n`));
+                                }
+                            } else if (mode === "off" || mode === "false" || mode === "disable") {
+                                try {
+                                    await axios.post("http://localhost:3000/history/use", { mode: "off" });
+                                    console.log(chalk.yellow(`\n🔇 History RAG: disabled\n`));
+                                } catch (err) {
+                                    console.log(chalk.red(`❌ ${err.response?.data?.error || err.message}\n`));
+                                }
+                            } else {
+                                console.log(chalk.red("Usage: /history use on | /history use off\n"));
+                            }
+                        } else if (subCmd === "clear") {
+                            try {
+                                const res = await axios.post("http://localhost:3000/history/clear");
+                                console.log(chalk.green("\n✅ History Knowledge Index cleared and refreshed successfully\n"));
+                                if (res.data.stats) {
+                                    console.log(chalk.gray(`   Sessions: ${res.data.stats.totalSessions} | Messages: ${res.data.stats.totalMessages}\n`));
+                                }
+                            } catch (err) {
+                                console.log(chalk.red(`❌ ${err.response?.data?.error || err.message}\n`));
+                            }
+                        } else if (subCmd === "on") {
+                            try {
+                                await axios.post("http://localhost:3000/history/on");
+                                console.log(chalk.green(`\n✅ History RAG: enabled\n`));
+                            } catch (err) {
+                                console.log(chalk.red(`❌ ${err.response?.data?.error || err.message}\n`));
+                            }
+                        } else if (subCmd === "off") {
+                            try {
+                                await axios.post("http://localhost:3000/history/off");
+                                console.log(chalk.yellow(`\n🔇 History RAG: disabled\n`));
+                            } catch (err) {
+                                console.log(chalk.red(`❌ ${err.response?.data?.error || err.message}\n`));
+                            }
+                        } else {
+                            try {
+                                const res = await axios.get("http://localhost:3000/history/status");
+                                const s = res.data;
+                                console.log("\n" + chalk.bold("📚 Chat History Knowledge Base") + "\n");
+                                console.log(`History RAG:      ${s.enabled ? chalk.green("enabled") : chalk.red("disabled")}`);
+                                console.log(`Indexed Sessions: ${s.totalSessions} (${(s.sessions || []).join(", ")})`);
+                                console.log(`Total Messages:   ${s.totalMessages}`);
+                                console.log(`Total Terms:      ${s.totalTerms}\n`);
+                            } catch (err) {
+                                // Server might be starting up
+                            }
+                            console.log(
+                                chalk.bold("History Commands:") + "\n" +
+                                "  /history status               - View history knowledge status\n" +
+                                "  /history search <query>       - Search past chat conversations\n" +
+                                "  /history use on|off           - Enable or disable history RAG\n" +
+                                "  /history clear                - Refresh/re-index history knowledge\n"
+                            );
+                        }
+                        break;
+                    }
+
                     case "help": {
                         console.log("\n" + chalk.bold("Available Interactive Commands:") + "\n" +
                             "  /provider [name]              - View or change AI provider\n" +
@@ -980,6 +1503,22 @@ async function startInteractiveChat() {
                             "  /models [provider]            - List models for a provider\n" +
                             "  /switch <name>                - Switch active chat session\n" +
                             "  /new <name>                   - Create new chat session\n" +
+                            "\n" + chalk.bold("PDF RAG Commands:") + "\n" +
+                            "  /pdf add <path>               - Add and index a PDF file\n" +
+                            "  /pdf list                     - List all indexed PDFs\n" +
+                            "  /pdf info <name>              - View metadata and info for a PDF\n" +
+                            "  /pdf use <name|all>           - Select active PDF or search across all PDFs\n" +
+                            "  /pdf search <query>           - Search PDF knowledge without invoking AI\n" +
+                            "  /pdf remove <name>            - Remove a PDF document\n" +
+                            "  /pdf clear                    - Clear complete PDF knowledge base\n" +
+                            "  /pdf off                      - Disable PDF mode without deleting index\n" +
+                            "  /pdf status                   - View PDF knowledge status\n" +
+                            "\n" + chalk.bold("History RAG Commands:") + "\n" +
+                            "  /history                      - View history knowledge status and help\n" +
+                            "  /history status               - View detailed history RAG status\n" +
+                            "  /history search <query>       - Search past chat history without calling AI\n" +
+                            "  /history use on|off           - Enable or disable history context injection\n" +
+                            "  /history clear                - Refresh/re-index history knowledge\n" +
                             "\n" + chalk.bold("Voice Commands:") + "\n" +
                             "  /voice on                     - Enable microphone voice mode\n" +
                             "  /voice off                    - Disable voice mode\n" +
@@ -1022,6 +1561,22 @@ async function startInteractiveChat() {
                 });
 
                 spinner.stop();
+
+                if (res.data.citations && res.data.citations.length > 0) {
+                    console.log(chalk.cyan("🔎 Searching PDF..."));
+                    res.data.citations.forEach((c) => {
+                        console.log(chalk.bold.yellow(`📄 Source: ${c}`));
+                    });
+                    console.log("");
+                }
+
+                if (res.data.historyCitations && res.data.historyCitations.length > 0) {
+                    console.log(chalk.magenta("🔎 Searching Chat History..."));
+                    res.data.historyCitations.forEach((c) => {
+                        console.log(chalk.bold.magenta(`💬 Source: [${c.sessionTitle} | ${c.role}] ${c.snippet}`));
+                    });
+                    console.log("");
+                }
 
                 const respModel = res.data.model || currentSettings.model;
                 const respThinking = res.data.thinkingLevel || currentSettings.thinkingLevel;

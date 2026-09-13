@@ -7,12 +7,18 @@ const os          = require("os");
 const { spawnSync, spawn } = require("child_process");
 
 // ── State ─────────────────────────────────────────────────────────────────────
-let voiceEnabled    = process.env.VOICE_ENABLED  === "true";
-let ttsEnabled      = process.env.VOICE_TTS      === "true";
-let language        = process.env.VOICE_LANGUAGE || "en-IN";
-let _ffmpegProcess  = null;   // active recording process
-let _loopActive     = false;
-let _selectedDevice = null;   // user-chosen device name (null = auto-pick first)
+let voiceEnabled      = process.env.VOICE_ENABLED  === "true";
+let ttsEnabled        = process.env.VOICE_TTS      === "true";
+let language          = process.env.VOICE_LANGUAGE || "en-IN";
+let _ffmpegProcess    = null;   // active recording process
+let _loopActive       = false;
+let _selectedDevice   = null;   // manual user-chosen device name (null = auto-pick Windows default)
+let _activeDeviceName = null;   // cached resolved device name
+
+// State locks for concurrency protection
+let _isRecording     = false;
+let _isTranscribing  = false;
+let _stopRequested   = false;
 
 // ── FFmpeg path resolution ────────────────────────────────────────────────────
 
@@ -40,13 +46,10 @@ function getFfmpegPath() {
   );
 }
 
-// ── Device enumeration ────────────────────────────────────────────────────────
+// ── Device enumeration & Windows Default Detection ────────────────────────────
 
 /**
- * Run  ffmpeg -list_devices true -f dshow -i dummy  and return raw stderr.
- *
- * FFmpeg always exits with a non-zero code when listing devices because
- * "dummy" is not a real input — the device list still appears in stderr.
+ * Run ffmpeg -list_devices true -f dshow -i dummy and return raw output.
  */
 function runDshowDeviceList(ffmpegBin) {
   const result = spawnSync(
@@ -54,46 +57,24 @@ function runDshowDeviceList(ffmpegBin) {
     ["-hide_banner", "-list_devices", "true", "-f", "dshow", "-i", "dummy"],
     { encoding: "utf8", timeout: 8000 }
   );
-  // Combine stderr + stdout — all useful output goes to stderr
   return (result.stderr || "") + (result.stdout || "");
 }
 
 /**
- * Parse the FFmpeg dshow device-list output and return an array of audio devices.
- *
- * FFmpeg 6.x format (this machine):
- *   [dshow @ 00000266...] "USB2.0 HD UVC WebCam" (video)
- *   [dshow @ 00000266...]   Alternative name "..."
- *   [dshow @ 00000266...] "Microphone Array (Realtek(R) Audio)" (audio)
- *   [dshow @ 00000266...]   Alternative name "..."
- *
- * Older FFmpeg format:
- *   [dshow @ ...] DirectShow video devices
- *   [dshow @ ...]  "..."
- *   [dshow @ ...] DirectShow audio devices
- *   [dshow @ ...]  "..."
- *
- * We handle both by matching any line whose quoted name is followed by "(audio)".
- * We also handle the older two-section format as a fallback.
+ * Parse FFmpeg dshow output to get available audio input devices.
  */
 function parseAudioDevices(output) {
   const devices = [];
   const lines   = output.split("\n");
 
-  // ── Strategy 1: inline "(audio)" / "(video)" labels (FFmpeg 6.x) ──────────
   for (const line of lines) {
-    // Skip "Alternative name" lines
     if (/alternative name/i.test(line)) continue;
-    // Match:  [dshow @ ...] "Device Name" (audio)
     const m = line.match(/^\[dshow[^\]]*\]\s+"([^"]+)"\s+\(audio\)/i);
-    if (m) {
-      devices.push(m[1]);
-    }
+    if (m) devices.push(m[1]);
   }
 
   if (devices.length > 0) return devices;
 
-  // ── Strategy 2: section-header format (FFmpeg 4.x / 5.x fallback) ─────────
   let inAudioSection = false;
   for (const line of lines) {
     if (/DirectShow audio devices/i.test(line)) {
@@ -115,7 +96,7 @@ function parseAudioDevices(output) {
 
 /**
  * Return an array of { name } objects for all detected audio input devices.
- * Throws with a clear actionable message if none found or FFmpeg fails.
+ * Throws clear error if none found.
  */
 function listAudioDevices() {
   const ffmpegBin = getFfmpegPath();
@@ -123,63 +104,183 @@ function listAudioDevices() {
   const devices   = parseAudioDevices(output);
 
   if (devices.length === 0) {
-    throw new Error(
-      "❌  No audio input devices detected.\n\n" +
-      "Checklist:\n" +
-      "  1. Connect a microphone and make sure it is enabled.\n" +
-      "  2. Open Settings → Privacy & Security → Microphone\n" +
-      "     → enable 'Let desktop apps access your microphone'.\n" +
-      "  3. Check Device Manager for disabled audio input devices.\n\n" +
-      "FFmpeg output (last 400 chars):\n" +
-      output.slice(-400)
-    );
+    throw new Error("❌  Windows default microphone not found");
   }
 
   return devices.map((name) => ({ name }));
 }
 
 /**
+ * Detect the active Windows default audio capture device via WASAPI and Registry.
+ */
+function getWindowsDefaultMicrophoneInfo() {
+  if (os.platform() !== "win32") return null;
+
+  const psScript = `
+$ProgressPreference = 'SilentlyContinue'
+$WarningPreference = 'SilentlyContinue'
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+
+namespace AudioLib {
+    [Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    public interface IMMDeviceEnumerator {
+        [PreserveSig]
+        int EnumAudioEndpoints(int dataFlow, uint dwStateMask, out IntPtr ppDevices);
+        [PreserveSig]
+        int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice ppDevice);
+    }
+
+    [Guid("D666063F-1587-4E43-81F1-B948E807363F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    public interface IMMDevice {
+        [PreserveSig]
+        int Activate(ref Guid iid, uint dwClsCtx, IntPtr pActivationParams, out IntPtr ppInterface);
+        [PreserveSig]
+        int OpenPropertyStore(uint stgmAccess, out IntPtr ppProperties);
+        [PreserveSig]
+        int GetId(out IntPtr ppstrId);
+        [PreserveSig]
+        int GetState(out uint pdwState);
+    }
+
+    [ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]
+    public class MMDeviceEnumeratorComObject { }
+
+    public class Audio {
+        public static string GetDefaultInputDeviceId() {
+            try {
+                var enumerator = (IMMDeviceEnumerator)(new MMDeviceEnumeratorComObject());
+                IMMDevice dev = null;
+                int hr = enumerator.GetDefaultAudioEndpoint(1, 1, out dev);
+                if (hr != 0 || dev == null) {
+                    hr = enumerator.GetDefaultAudioEndpoint(1, 0, out dev);
+                }
+                if (hr != 0 || dev == null) return null;
+
+                IntPtr pStr = IntPtr.Zero;
+                hr = dev.GetId(out pStr);
+                if (hr != 0 || pStr == IntPtr.Zero) return null;
+
+                string id = Marshal.PtrToStringUni(pStr);
+                Marshal.FreeCoTaskMem(pStr);
+                return id;
+            } catch {
+                return null;
+            }
+        }
+    }
+}
+"@
+$id = [AudioLib.Audio]::GetDefaultInputDeviceId()
+if ($id) {
+    $guid = $id.Split('.')[-1]
+    $regPath = "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\MMDevices\\Audio\\Capture\\$guid\\Properties"
+    $prop = Get-ItemProperty -Path $regPath -ErrorAction SilentlyContinue
+    $p14 = $prop.'{a45c254e-df1c-4efd-8020-67d146a850e0},14'
+    $p2  = $prop.'{a45c254e-df1c-4efd-8020-67d146a850e0},2'
+    $p6  = $prop.'{b3f8fa53-0004-438e-9003-51a46e139bfc},6'
+    [PSCustomObject]@{
+        Id = $id
+        Guid = $guid
+        FriendlyName = $p14
+        DeviceDesc = $p2
+        DriverDesc = $p6
+    } | ConvertTo-Json -Compress
+} else {
+    Write-Output "null"
+}
+`;
+
+  try {
+    const res = spawnSync("powershell", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", psScript], {
+      encoding: "utf8",
+      timeout: 6000
+    });
+    const out = (res.stdout || "").trim();
+    if (!out || out === "null") return null;
+    return JSON.parse(out);
+  } catch (err) {
+    return null;
+  }
+}
+
+/**
+ * Resolve Windows default microphone name mapped to FFmpeg DirectShow device list.
+ */
+function getDefaultMicrophoneName() {
+  const ffmpegDevs = listAudioDevices();
+  if (!ffmpegDevs || ffmpegDevs.length === 0) {
+    throw new Error("❌  Windows default microphone not found");
+  }
+
+  if (os.platform() !== "win32") {
+    return ffmpegDevs[0].name;
+  }
+
+  const defaultInfo = getWindowsDefaultMicrophoneInfo();
+  if (!defaultInfo) {
+    return ffmpegDevs[0].name;
+  }
+
+  const { FriendlyName, DeviceDesc, DriverDesc } = defaultInfo;
+
+  if (FriendlyName) {
+    const match = ffmpegDevs.find(d => d.name.toLowerCase() === FriendlyName.toLowerCase());
+    if (match) return match.name;
+  }
+
+  if (DeviceDesc && DriverDesc) {
+    const combined = `${DeviceDesc} (${DriverDesc})`;
+    const match = ffmpegDevs.find(d => d.name.toLowerCase() === combined.toLowerCase());
+    if (match) return match.name;
+  }
+
+  if (DeviceDesc) {
+    const match = ffmpegDevs.find(d => d.name.toLowerCase().includes(DeviceDesc.toLowerCase()));
+    if (match) return match.name;
+  }
+  if (DriverDesc) {
+    const match = ffmpegDevs.find(d => d.name.toLowerCase().includes(DriverDesc.toLowerCase()));
+    if (match) return match.name;
+  }
+
+  return ffmpegDevs[0].name;
+}
+
+/**
  * Get the device to record from.
- * - User-chosen device wins (set via /voice device <name>).
- * - Otherwise auto-pick the first audio input and CACHE it in _selectedDevice
- *   so subsequent calls from inside the async voice loop never re-enumerate.
+ * User-chosen device wins if manually set, otherwise auto-detects Windows default mic.
  */
 function resolveDevice() {
   if (_selectedDevice) return _selectedDevice;
+  if (_activeDeviceName) return _activeDeviceName;
 
-  const devices = listAudioDevices();          // throws if none
-  _selectedDevice = devices[0].name;           // cache → avoids re-enumeration bug
-  return _selectedDevice;
+  _activeDeviceName = getDefaultMicrophoneName();
+  return _activeDeviceName;
 }
 
 // ── Audio recording ───────────────────────────────────────────────────────────
 
 /**
- * Escape a DirectShow device name for use inside  audio="<name>"
- * Backslashes and double-quotes must be escaped.
- */
-function escapeDshowDeviceName(name) {
-  // In the FFmpeg -i argument, the device name sits inside  audio=<name>
-  // No extra escaping is needed for the JS spawn args array (no shell quoting).
-  return name;
-}
-
-/**
  * Record audio from the system microphone using FFmpeg.
- * Max duration: durationSecs (default 60 s).
- * Auto-stops gracefully after 1 s of silence following detected speech.
- * Returns a Promise<string> that resolves to the temp WAV file path.
  */
 function recordAudio(durationSecs = 60) {
+  if (_isRecording) {
+    return Promise.reject(new Error("Recording is already in progress."));
+  }
+
   return new Promise((resolve, reject) => {
     let ffmpegBin, deviceName;
     try {
       ffmpegBin  = getFfmpegPath();
-      deviceName = resolveDevice();   // uses cache — no spawnSync inside async context
+      deviceName = resolveDevice();
     } catch (err) {
       return reject(err);
     }
 
+    _isRecording = true;
+    _stopRequested = false;
     const tmpFile  = path.join(os.tmpdir(), `voice_${Date.now()}.wav`);
     const platform = os.platform();
 
@@ -198,10 +299,8 @@ function recordAudio(durationSecs = 60) {
       ...inputArgs,
       "-ar", "16000",
       "-ac", "1",
-      // silencedetect: emit silence_start / silence_end events in stderr
-      // d=1.0  → 1 second of continuous silence below −35 dB triggers detection
       "-af", "silencedetect=noise=-35dB:d=1.0",
-      "-t",  String(durationSecs),   // hard max (safety net)
+      "-t",  String(durationSecs),
       "-vn",
       tmpFile,
     ];
@@ -209,33 +308,26 @@ function recordAudio(durationSecs = 60) {
     const proc = spawn(ffmpegBin, args, { stdio: ["pipe", "pipe", "pipe"] });
     _ffmpegProcess = proc;
 
-    let stderrBuf    = "";
-    let speechSeen   = false;   // true after first silence_end (= speech started)
+    let stderrBuf     = "";
+    let speechSeen    = false;
     let stopScheduled = false;
-    const startMs    = Date.now();
+    const startMs     = Date.now();
 
     proc.stderr.on("data", (d) => {
       const chunk = d.toString();
       stderrBuf += chunk;
 
-      // silence_end  → a silence period just ENDED → speech has begun
       if (!speechSeen && chunk.includes("silence_end")) {
         speechSeen = true;
       }
 
-      // silence_start → silence detected (speech paused or never started)
-      if (!stopScheduled && chunk.includes("silence_start")) {
+      if (!stopScheduled && !_stopRequested && chunk.includes("silence_start")) {
         const elapsed = Date.now() - startMs;
-        // Auto-stop when:
-        //   • speech was detected and user paused, OR
-        //   • 2+ seconds of audio captured (handles immediately-speaking users
-        //     where no initial silence_end is emitted before they start)
         if (speechSeen || elapsed > 2000) {
           stopScheduled = true;
-          // Give ffmpeg 300 ms to flush the current frame then stop gracefully
+          _stopRequested = true;
           setTimeout(() => {
             try { proc.stdin.write("q\n"); } catch {}
-            // Hard kill fallback after 1.5 s
             setTimeout(() => { try { proc.kill(); } catch {} }, 1500);
           }, 300);
         }
@@ -244,6 +336,8 @@ function recordAudio(durationSecs = 60) {
 
     proc.on("close", () => {
       _ffmpegProcess = null;
+      _isRecording = false;
+      _stopRequested = false;
       const exists = fs.existsSync(tmpFile);
       const size   = exists ? fs.statSync(tmpFile).size : 0;
 
@@ -273,6 +367,8 @@ function recordAudio(durationSecs = 60) {
 
     proc.on("error", (err) => {
       _ffmpegProcess = null;
+      _isRecording = false;
+      _stopRequested = false;
       reject(new Error(
         err.code === "ENOENT"
           ? "❌  FFmpeg not found. Run: npm install ffmpeg-static"
@@ -287,15 +383,11 @@ function recordAudio(durationSecs = 60) {
 function requireOpenAI() {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey || !apiKey.trim()) {
-    throw new Error(
-      "❌  OPENAI_API_KEY is not set.\n" +
-      "  Whisper STT requires an OpenAI API key.\n" +
-      "  Add OPENAI_API_KEY=sk-... to your .env file."
-    );
+    throw new Error("❌  OPENAI_API_KEY is required for Whisper STT");
   }
   try {
     const { OpenAI } = require("openai");
-    return new OpenAI({ apiKey });
+    return new OpenAI({ apiKey: apiKey.trim() });
   } catch {
     throw new Error("❌  Failed to load openai package. Run: npm install openai");
   }
@@ -322,8 +414,22 @@ function mapLanguage(lang) {
 }
 
 async function transcribeAudio(filePath) {
-  const openai = requireOpenAI();
-  const lang   = mapLanguage(language);
+  if (_isTranscribing) {
+    try { fs.unlinkSync(filePath); } catch {}
+    throw new Error("Transcription already in progress.");
+  }
+
+  _isTranscribing = true;
+  let openai;
+  try {
+    openai = requireOpenAI();
+  } catch (err) {
+    _isTranscribing = false;
+    try { fs.unlinkSync(filePath); } catch {}
+    throw err;
+  }
+
+  const lang = mapLanguage(language);
   try {
     const result = await openai.audio.transcriptions.create({
       file:            fs.createReadStream(filePath),
@@ -333,11 +439,27 @@ async function transcribeAudio(filePath) {
     });
     return (typeof result === "string" ? result : result.text || "").trim();
   } catch (err) {
-    if (err.status === 401) throw new Error("❌  OpenAI API key invalid or expired.");
-    if (err.status === 429) throw new Error("❌  OpenAI rate limit reached. Wait and retry.");
-    if (err.status === 413) throw new Error("❌  Audio file too large for Whisper (max 25 MB).");
-    throw new Error("❌  Whisper transcription failed: " + err.message);
+    const msg = (err.message || "").toLowerCase();
+    const status = err.status || err.statusCode;
+
+    if (status === 401 || msg.includes("incorrect api key") || msg.includes("invalid_api_key")) {
+      throw new Error("❌  OPENAI_API_KEY is invalid or expired.");
+    }
+    if (
+      status === 429 ||
+      msg.includes("rate limit") ||
+      msg.includes("quota") ||
+      msg.includes("insufficient_quota") ||
+      msg.includes("exceeded your current quota")
+    ) {
+      throw new Error("❌  Whisper STT rate limit reached. Please check OpenAI API quota/billing.");
+    }
+    if (status === 413) {
+      throw new Error("❌  Audio file too large for Whisper (max 25 MB).");
+    }
+    throw new Error("❌  Whisper transcription failed: " + (err.message || "Unknown error"));
   } finally {
+    _isTranscribing = false;
     try { fs.unlinkSync(filePath); } catch {}
   }
 }
@@ -355,8 +477,14 @@ function disableVoice() {
 }
 
 function finishRecording() {
-  // Stops current recording but keeps voiceEnabled true so the loop continues
-  stopRecording();
+  if (_ffmpegProcess && _isRecording && !_stopRequested) {
+    _stopRequested = true;
+    try { _ffmpegProcess.stdin.write("q\n"); } catch {}
+    const proc = _ffmpegProcess;
+    setTimeout(() => { try { proc.kill(); } catch {} }, 1500);
+    return true;
+  }
+  return false;
 }
 
 function setLanguage(lang) {
@@ -377,29 +505,41 @@ function selectDevice(deviceName) {
     throw new Error("Device name cannot be empty. Use /voice devices to list available microphones.");
   }
   _selectedDevice = deviceName.trim();
+  _activeDeviceName = null;
 }
 
-/** Clear the manual device selection (revert to auto-pick). */
+/** Clear the manual device selection (revert to auto-pick Windows default). */
 function clearDeviceSelection() {
   _selectedDevice = null;
+  _activeDeviceName = null;
 }
 
 function getStatus() {
+  let micDisplay = "Windows Default";
+  if (_selectedDevice) {
+    micDisplay = _selectedDevice;
+  }
+
   return {
     voiceEnabled,
     ttsEnabled,
     language,
-    loopActive:     _loopActive,
-    selectedDevice: _selectedDevice || "(auto)",
+    loopActive:     _loopActive || _isRecording || _isTranscribing,
+    selectedDevice: micDisplay,
+    isRecording:    _isRecording,
+    isTranscribing: _isTranscribing,
+    isProcessing:   _isRecording || _isTranscribing,
   };
 }
 
 function stopRecording() {
   if (_ffmpegProcess) {
+    _stopRequested = true;
     try { _ffmpegProcess.stdin.write("q\n"); } catch {}
     const proc = _ffmpegProcess;
     setTimeout(() => { try { proc.kill(); } catch {} }, 1500);
     _ffmpegProcess = null;
+    _isRecording = false;
   }
 }
 
@@ -414,10 +554,7 @@ function checkDependencies() {
   catch (err) { issues.push(err.message); }
 
   if (!process.env.OPENAI_API_KEY || !process.env.OPENAI_API_KEY.trim()) {
-    issues.push(
-      "❌  OPENAI_API_KEY is not set in .env.\n" +
-      "   Add OPENAI_API_KEY=sk-... to your .env file."
-    );
+    issues.push("❌  OPENAI_API_KEY is required for Whisper STT");
   }
 
   if (issues.length === 0) return { ok: true, message: "All voice dependencies OK." };
@@ -426,17 +563,20 @@ function checkDependencies() {
 
 /**
  * Record one utterance from the mic and return the Whisper transcript.
- * Max 60 s; auto-stops after 1 s of silence following speech.
+ * Accepts optional options.onRecordingStop callback.
  */
-async function listenOnce() {
+async function listenOnce(options = {}) {
   const dep = checkDependencies();
   if (!dep.ok) throw new Error(dep.message);
-  const filePath = await recordAudio(60);   // 60 s max, silence auto-stop
+  const filePath = await recordAudio(60);
+  if (typeof options.onRecordingStop === "function") {
+    options.onRecordingStop();
+  }
   return await transcribeAudio(filePath);
 }
 
 /**
- * TTS via Windows PowerShell SpeechSynthesizer (no extra install).
+ * TTS via Windows PowerShell SpeechSynthesizer.
  */
 function speak(text) {
   if (!ttsEnabled || !text || !text.trim()) return;
@@ -459,6 +599,18 @@ function speak(text) {
   }
 }
 
+function isRecording() {
+  return _isRecording;
+}
+
+function isTranscribing() {
+  return _isTranscribing;
+}
+
+function isProcessing() {
+  return _isRecording || _isTranscribing;
+}
+
 module.exports = {
   enableVoice,
   disableVoice,
@@ -474,4 +626,8 @@ module.exports = {
   stopRecording,
   finishRecording,
   checkDependencies,
+  isRecording,
+  isTranscribing,
+  isProcessing,
 };
+
