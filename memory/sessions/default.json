@@ -2,7 +2,7 @@
   "id": "default",
   "title": "Default Help",
   "createdAt": "2026-07-31T12:03:39.410Z",
-  "updatedAt": "2026-09-07T08:27:40.482Z",
+  "updatedAt": "2026-09-15T08:20:34.376Z",
   "messages": [
     {
       "role": "user",
@@ -189,7 +189,7 @@
       "content": "It looks like you're running a command in your project's terminal!\n\n`npm run client` is likely a script in your project's `package.json` file that tells npm to execute the `client` script.\n\nThis script probably starts the development server or builds the client-side of your application, making it available in the browser. Is that correct?"
     }
   ],
-  "provider": "openrouter",
-  "model": "google/gemini-2.0-flash-exp:free",
+  "provider": "gemini",
+  "model": "gemini-2.0-flash",
   "thinkingLevel": "medium"
 }

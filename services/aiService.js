@@ -5,6 +5,7 @@ const providerManager  = require("./providerManager");
 const pdfService       = require("./pdf/pdfService");
 const historyService   = require("./history/historyService");
 const { loadHistory, readActiveSession, saveMessage, getSessionObject } = require("./sessionService");
+const { aiConfig } = require("../config/aiConfig");
 
 const MEMORY_DIR = path.join(__dirname, "../memory");
 const SESSION_DIR = path.join(MEMORY_DIR, "sessions");
@@ -19,21 +20,24 @@ async function askAI(question, options = {}) {
         text: question
     };
 
+    const targetDoc = options.pdfId || options.pdfName || options.pdf || options.files;
     const pdfStatus = pdfService.getStatus();
     let finalUserPrompt = question;
     let citations        = [];
     let pdfUsed          = false;
     let historyCitations = [];
     let historyUsed      = false;
+    let pdfNames         = [];
 
     // ── PDF context ──────────────────────────────────────────
     let pdfContextText = "";
-    if (pdfStatus.enabled) {
-        const pdfContext = pdfService.buildContext(question);
+    if (pdfStatus.enabled || targetDoc) {
+        const pdfContext = pdfService.buildContext(question, 4, targetDoc);
         citations = pdfContext.citations || [];
         pdfUsed   = pdfContext.hasContext;
         if (pdfContext.hasContext) {
             pdfContextText = pdfContext.contextText;
+            pdfNames = citations.map(c => c.split(" — ")[0]);
         }
     }
 
@@ -70,7 +74,7 @@ async function askAI(question, options = {}) {
         parts.push("User question:");
         parts.push(question);
         finalUserPrompt = parts.join("\n");
-    } else if (pdfStatus.enabled) {
+    } else if (pdfStatus.enabled || targetDoc) {
         // PDF mode on but nothing found
         finalUserPrompt = `You are answering questions strictly using the active PDF Knowledge Base.\n\nUser question:\n${question}\n\nNo relevant context was found in the active PDF document(s).\nClearly state: "I could not find this information in the PDF."`;
     }
@@ -90,11 +94,14 @@ async function askAI(question, options = {}) {
     const session = getSessionObject(active.active, sessionFile);
 
     const mergedOptions = {
-        provider: options.provider || session.provider,
-        model: options.model || session.model,
-        thinkingLevel: options.thinkingLevel || session.thinkingLevel,
+        provider: options.provider || session.provider || aiConfig.provider || "gemini",
+        model: options.model || (options.provider && options.provider !== session.provider ? undefined : session.model) || aiConfig.model,
+        thinkingLevel: options.thinkingLevel || session.thinkingLevel || "medium",
         ...options
     };
+
+    // Safe server-side debug log (Step 15: NEVER print API keys!)
+    console.log(`[AI REQUEST] provider=${mergedOptions.provider} model=${mergedOptions.model || "default"} sessionId=${active.active} pdfUsed=${pdfUsed} pdfNames=${pdfNames.join(",") || "none"} historyUsed=${historyUsed}`);
 
     const result = await providerManager.generateResponse(messages, mergedOptions);
     const answer = result.content || result.text || "";

@@ -228,9 +228,35 @@ class PDFService {
         };
     }
 
-    buildContext(question, topK = 4) {
+    buildContext(question, topK = 4, targetDoc = null) {
         this.state = loadState();
-        if (!this.state.enabled) {
+
+        let activeId = this.state.activeDocumentId || "all";
+
+        // If a specific document or file list was attached to the request, resolve it
+        if (targetDoc) {
+            if (Array.isArray(targetDoc) && targetDoc.length > 0) {
+                const resolvedIds = targetDoc
+                    .map((d) => {
+                        const ident = typeof d === "object" ? d.id || d.name || d.originalFilename : d;
+                        const meta = getMetadata(ident);
+                        return meta ? meta.id : ident;
+                    })
+                    .filter(Boolean);
+
+                if (resolvedIds.length > 0) {
+                    activeId = resolvedIds;
+                }
+            } else if (typeof targetDoc === "string" || typeof targetDoc === "object") {
+                const ident = typeof targetDoc === "object" ? targetDoc.id || targetDoc.name || targetDoc.originalFilename : targetDoc;
+                const meta = getMetadata(ident);
+                if (meta) {
+                    activeId = meta.id;
+                } else if (ident) {
+                    activeId = ident;
+                }
+            }
+        } else if (!this.state.enabled) {
             return {
                 hasContext: false,
                 contextText: "",
@@ -239,9 +265,9 @@ class PDFService {
             };
         }
 
-        const chunks = searchChunks(question, this.state.activeDocumentId, topK);
+        const chunks = searchChunks(question, activeId, topK);
 
-        if (chunks.length === 0) {
+        if (!chunks || chunks.length === 0) {
             return {
                 hasContext: false,
                 contextText: "",

@@ -28,5 +28,7 @@
       "role": "assistant",
       "content": "Hello! 👋 Ready to keep coding?\n\nWe just covered basic Express `GET` routes. Where would you like to go next? Here are a few common next steps:\n\n1. **Handling `POST` requests** (receiving data from forms or JSON bodies)\n2. **Express Middleware** (logging, parsing incoming data, authentication)\n3. **Organizing routes** using `express.Router()`\n4. **Connecting to a database** (like MongoDB, PostgreSQL, or SQLite)\n5. **Something completely different!**\n\nLet me know what you'd like to build or learn about next!"
     }
-  ]
+  ],
+  "provider": "gemini",
+  "model": "gemini-2.0-flash"
 }

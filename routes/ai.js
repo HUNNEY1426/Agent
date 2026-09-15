@@ -7,6 +7,8 @@ const path = require("path");
 const { askAI } = require("../services/aiService");
 const providerManager = require("../services/providerManager");
 const { thinkingLevels } = require("../services/thinkingConfig");
+const { createSafeErrorResponse } = require("../services/errorSanitizer");
+const { aiConfig } = require("../config/aiConfig");
 const {
     deleteSession,
     renameSession,
@@ -29,7 +31,7 @@ const SESSION_DIR = path.join(MEMORY_DIR, "sessions");
 const ACTIVE_FILE = path.join(MEMORY_DIR, "active_session.txt");
 
 router.post("/ask", async (req, res) => {
-    const { question, provider, model, thinkingLevel } = req.body;
+    const { question, provider, model, thinkingLevel, pdfName, pdfId, files, pdf } = req.body;
 
     if (!question || !question.trim()) {
         return res.status(400).json({
@@ -37,8 +39,19 @@ router.post("/ask", async (req, res) => {
         });
     }
 
+    const selectedProvider = provider || providerManager.runtimeSettings.provider || aiConfig.provider || "gemini";
+
     try {
-        const result = await askAI(question, { provider, model, thinkingLevel });
+        const result = await askAI(question, {
+            provider: selectedProvider,
+            model,
+            thinkingLevel,
+            pdfName,
+            pdfId,
+            files,
+            pdf,
+        });
+
         const answer = typeof result === "string" ? result : result.answer;
 
         res.json({
@@ -54,11 +67,15 @@ router.post("/ask", async (req, res) => {
         });
 
     } catch (error) {
-        console.error("AI Error:", error);
+        console.error("AI Route Error:", error.message || error);
 
-        res.status(500).json({
-            error: error.message || "AI service temporarily unavailable"
-        });
+        const safeError = createSafeErrorResponse(
+            selectedProvider,
+            error,
+            error.attemptedErrors || []
+        );
+
+        res.status(500).json(safeError);
     }
 });
 
@@ -69,10 +86,16 @@ router.get("/settings", (req, res) => {
         const sessionFile = path.join(SESSION_DIR, `${active.active}.json`);
         const session = getSessionObject(active.active, sessionFile);
 
+        const activeProvider = session.provider || providerManager.runtimeSettings.provider || aiConfig.provider || "gemini";
+        const activeModel = session.model || providerManager.runtimeSettings.model || aiConfig.model || "gemini-2.0-flash";
+        const activeThinking = session.thinkingLevel || providerManager.runtimeSettings.thinkingLevel || aiConfig.thinkingLevel || "medium";
+
         res.json({
-            provider: session.provider || providerManager.runtimeSettings.provider,
-            model: session.model || providerManager.runtimeSettings.model,
-            thinkingLevel: session.thinkingLevel || providerManager.runtimeSettings.thinkingLevel,
+            provider: activeProvider,
+            model: activeModel,
+            thinkingLevel: activeThinking,
+            defaultProvider: aiConfig.provider || "gemini",
+            defaultModel: aiConfig.model || "gemini-2.0-flash",
         });
     } catch (error) {
         res.json(providerManager.getCurrentSettings());
@@ -117,16 +140,19 @@ router.post("/settings", async (req, res) => {
     }
 });
 
-// List Available Providers
+// List Available Providers with configuration status and models
 router.get("/providers", (req, res) => {
+    const providerList = providerManager.getProviderStatusList();
     res.json({
-        providers: providerManager.listProviders()
+        providers: providerList,
+        defaultProvider: aiConfig.provider || providerManager.runtimeSettings.provider || "gemini",
+        defaultModel: aiConfig.model || providerManager.runtimeSettings.model || "gemini-2.0-flash",
     });
 });
 
 // List Models for Provider
 function handleModelsList(req, res) {
-    const provider = req.params.provider || providerManager.runtimeSettings.provider;
+    const provider = req.params.provider || providerManager.runtimeSettings.provider || "gemini";
     try {
         const modelsList = providerManager.listModels(provider);
         res.json({
@@ -161,9 +187,9 @@ router.post("/chat/new", (req, res) => {
     const sessionFile = path.join(SESSION_DIR, `${name}.json`);
 
     const currentSettings = providerManager.getCurrentSettings();
-    const sessionProvider = provider || currentSettings.provider;
-    const sessionModel = model || currentSettings.model;
-    const sessionThinking = thinkingLevel || currentSettings.thinkingLevel;
+    const sessionProvider = provider || currentSettings.provider || aiConfig.provider || "gemini";
+    const sessionModel = model || currentSettings.model || aiConfig.model || "gemini-2.0-flash";
+    const sessionThinking = thinkingLevel || currentSettings.thinkingLevel || "medium";
 
     if (!fs.existsSync(sessionFile)) {
         const now = new Date().toISOString();
@@ -229,14 +255,18 @@ router.post("/chat/switch", (req, res) => {
                     content: msg.content || msg.text || ""
                 }));
             } else if (parsed && typeof parsed === "object") {
-                if (parsed.provider) providerManager.setProvider(parsed.provider);
-                if (parsed.model) providerManager.setModel(parsed.model, parsed.provider || providerManager.runtimeSettings.provider);
-                if (parsed.thinkingLevel) providerManager.setThinkingLevel(parsed.thinkingLevel);
+                const prov = parsed.provider || aiConfig.provider || "gemini";
+                const mod = parsed.model || aiConfig.model || "gemini-2.0-flash";
+                const think = parsed.thinkingLevel || aiConfig.thinkingLevel || "medium";
+
+                providerManager.setProvider(prov);
+                providerManager.setModel(mod, prov);
+                providerManager.setThinkingLevel(think);
 
                 sessionSettings = {
-                    provider: parsed.provider || providerManager.runtimeSettings.provider,
-                    model: parsed.model || providerManager.runtimeSettings.model,
-                    thinkingLevel: parsed.thinkingLevel || providerManager.runtimeSettings.thinkingLevel,
+                    provider: prov,
+                    model: mod,
+                    thinkingLevel: think,
                 };
 
                 if (Array.isArray(parsed.messages)) {

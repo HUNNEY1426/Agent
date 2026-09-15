@@ -12,5 +12,7 @@
       "role": "assistant",
       "content": "Hello! How can I help you today?"
     }
-  ]
+  ],
+  "provider": "gemini",
+  "model": "gemini-2.0-flash"
 }

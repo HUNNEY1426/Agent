@@ -7,6 +7,7 @@ const {
 } = require("../config/aiConfig");
 
 const { getModels, getDefaultModel } = require("./modelRegistry");
+const { sanitizeString } = require("./errorSanitizer");
 
 const GeminiProvider = require("./providers/geminiProvider");
 const OpenAIProvider = require("./providers/openaiProvider");
@@ -30,6 +31,69 @@ class ProviderManager {
       model: this.runtimeSettings.model,
       thinkingLevel: this.runtimeSettings.thinkingLevel,
     };
+  }
+
+  isProviderConfigured(providerName) {
+    validateProvider(providerName);
+    const cfg = aiConfig.providers?.[providerName];
+    if (!cfg) return false;
+
+    switch (providerName) {
+      case "gemini":
+        return Boolean(cfg.apiKey && cfg.apiKey.trim().length > 0);
+      case "openrouter":
+        return Boolean(cfg.apiKey && cfg.apiKey.trim().length > 0);
+      case "openai":
+        return Boolean(cfg.apiKey && cfg.apiKey.trim().length > 0);
+      case "claude":
+        return Boolean(cfg.apiKey && cfg.apiKey.trim().length > 0);
+      case "ollama":
+        return true; // Local service
+      default:
+        return false;
+    }
+  }
+
+  getProviderStatusList() {
+    const displayNames = {
+      gemini: "Gemini",
+      openrouter: "OpenRouter",
+      openai: "OpenAI",
+      claude: "Claude",
+      ollama: "Ollama",
+    };
+
+    const thinkingSupport = {
+      gemini: true,
+      openrouter: true,
+      openai: true,
+      claude: false,
+      ollama: false,
+    };
+
+    return supportedProviders.map((id) => {
+      const configured = this.isProviderConfigured(id);
+      let status = configured ? "ready" : "not_configured";
+      let statusLabel = configured ? "Configured" : "Not configured";
+
+      if (id === "ollama" && !configured) {
+        status = "offline";
+        statusLabel = "Offline";
+      }
+
+      const defaultMod = aiConfig.providers?.[id]?.model || getDefaultModel(id);
+
+      return {
+        id,
+        name: displayNames[id] || id,
+        configured,
+        status,
+        statusLabel,
+        defaultModel: defaultMod,
+        models: getModels(id),
+        supportsThinking: thinkingSupport[id] || false,
+      };
+    });
   }
 
   setProvider(provider) {
@@ -109,10 +173,11 @@ class ProviderManager {
   }
 
   async generateResponse(messages, options = {}) {
-    const providerName =
+    const primaryProvider =
       options.provider ||
       this.runtimeSettings.provider ||
-      aiConfig.provider;
+      aiConfig.provider ||
+      "gemini";
 
     const model =
       options.model ||
@@ -124,22 +189,36 @@ class ProviderManager {
       this.runtimeSettings.thinkingLevel ||
       "medium";
 
-    const fallbackProviders = [
-      providerName,
-      ...(options.fallbackProviders ||
-        aiConfig.fallbackProviders ||
-        []),
+    // Build ordered fallback chain
+    const configuredFallbacks = (aiConfig.fallbackProviders && aiConfig.fallbackProviders.length > 0)
+      ? aiConfig.fallbackProviders
+      : ["gemini", "openrouter", "openai", "claude", "ollama"];
+
+    const candidates = [
+      primaryProvider,
+      ...(options.fallbackProviders || configuredFallbacks),
+      // Ensure other configured providers are also candidates if primary fails
+      "gemini",
+      "openrouter",
+      "openai",
+      "claude",
+      "ollama",
     ];
 
-    const uniqueProviders = [...new Set(fallbackProviders)];
-    const errors = [];
+    const uniqueProviders = [...new Set(candidates)];
+    const attemptedErrors = [];
 
     for (const pName of uniqueProviders) {
+      // If pName is not the primary requested provider, skip unconfigured providers
+      if (pName !== primaryProvider && !this.isProviderConfigured(pName)) {
+        continue;
+      }
+
       try {
         const providerInstance = this.createProvider(pName);
 
         let targetModel;
-        if (options.model && pName === providerName) {
+        if (options.model && pName === primaryProvider) {
           targetModel = options.model;
         } else if (pName === this.runtimeSettings.provider && this.runtimeSettings.model) {
           targetModel = this.runtimeSettings.model;
@@ -153,20 +232,24 @@ class ProviderManager {
           thinkingLevel,
         });
       } catch (error) {
-        errors.push({
+        const cleanMsg = sanitizeString(error.message);
+        attemptedErrors.push({
           provider: pName,
-          error: error.message,
+          error: cleanMsg,
         });
 
         console.error(
-          `${pName} provider failed: ${error.message}`
+          `[Provider Fallback] ${pName} provider failed: ${cleanMsg}`
         );
       }
     }
 
-    throw new Error(
-      `All AI providers failed: ${JSON.stringify(errors)}`
+    const err = new Error(
+      `All AI providers failed: ${JSON.stringify(attemptedErrors)}`
     );
+    err.attemptedErrors = attemptedErrors;
+    err.primaryProvider = primaryProvider;
+    throw err;
   }
 
   async streamResponse(messages, options = {}, onToken = () => {}) {

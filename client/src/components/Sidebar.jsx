@@ -1,165 +1,220 @@
 import React, { useState } from 'react';
-import { Plus, MessageSquare, Trash2, X, Sparkles, RefreshCw } from 'lucide-react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import {
+  Bot, Plus, Search, MessageSquare, FileText, BookOpen, Settings, LogOut,
+  X, MoreHorizontal, Loader2,
+} from 'lucide-react';
+import { useChat } from '../context/ChatContext';
+import { useAuth } from '../context/AuthContext';
+import ContextMenu from './ContextMenu';
 
-export function Sidebar({
-  isOpen,
-  onClose,
-  sessions = [],
-  activeSessionId,
-  onSelectSession,
-  onCreateSession,
-  onDeleteSession,
-  onRefreshSessions,
-}) {
-  const [newSessionName, setNewSessionName] = useState('');
-  const [isCreating, setIsCreating] = useState(false);
+function timeAgo(dateStr) {
+  if (!dateStr) return '';
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'now';
+  if (mins < 60) return `${mins}m`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d`;
+}
 
-  const handleCreateSubmit = (e) => {
+export default function Sidebar({ isOpen, onClose, onShowFiles, onShowHistory }) {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { user, logout } = useAuth();
+  const {
+    sessions, activeSessionId, switchSession, createSession,
+    deleteSession, renameSession, duplicateSession, archiveSession,
+  } = useChat();
+
+  const [search, setSearch] = useState('');
+  const [ctxMenu, setCtxMenu] = useState(null);
+  const [creating, setCreating] = useState(false);
+
+  const filteredSessions = sessions.filter(s =>
+    !search || (s.title || s.id || '').toLowerCase().includes(search.toLowerCase())
+  );
+
+  const handleNewChat = async () => {
+    const name = `chat-${Date.now()}`;
+    setCreating(true);
+    try {
+      await createSession(name);
+      onClose?.();
+    } catch {}
+    setCreating(false);
+  };
+
+  const handleSelectSession = async (id) => {
+    await switchSession(id);
+    onClose?.();
+    if (location.pathname !== '/chat') navigate('/chat');
+  };
+
+  const handleContextMenu = (e, sessionId) => {
     e.preventDefault();
-    const name = newSessionName.trim().toLowerCase().replace(/\s+/g, '-');
-    if (!name) return;
+    e.stopPropagation();
+    setCtxMenu({ sessionId, position: { x: e.clientX, y: e.clientY } });
+  };
 
-    onCreateSession(name);
-    setNewSessionName('');
-    setIsCreating(false);
+  const handleRename = async (id) => {
+    const newName = prompt('New name:', id);
+    if (newName && newName.trim() && newName !== id) {
+      try { await renameSession(id, newName.trim()); } catch (e) { alert(e.message); }
+    }
+  };
+
+  const handleDelete = async (id) => {
+    if (confirm(`Delete "${id}"?`)) {
+      try { await deleteSession(id); } catch (e) { alert(e.message); }
+    }
   };
 
   return (
     <>
-      {/* Mobile backdrop */}
-      {isOpen && (
-        <div
-          onClick={onClose}
-          className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-40 md:hidden"
-        />
-      )}
+      {/* Overlay for mobile */}
+      {isOpen && <div className="fixed inset-0 bg-black/60 z-30 lg:hidden" onClick={onClose} />}
 
-      {/* Sidebar container */}
-      <aside
-        className={`fixed md:static inset-y-0 left-0 z-40 w-72 bg-slate-900/95 md:bg-slate-900/60 border-r border-slate-800 flex flex-col transition-transform duration-300 ease-in-out ${
-          isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
-        }`}
-      >
-        {/* Top Header */}
-        <div className="p-4 border-b border-slate-800 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <MessageSquare className="w-5 h-5 text-indigo-400" />
-            <h2 className="font-semibold text-sm text-white">Chat Sessions</h2>
-          </div>
-          <div className="flex items-center gap-1">
-            <button
-              onClick={onRefreshSessions}
-              className="p-1.5 text-slate-400 hover:text-slate-200 rounded-lg hover:bg-slate-800 transition-colors"
-              title="Refresh sessions"
-              aria-label="Refresh sessions"
-            >
-              <RefreshCw className="w-4 h-4" />
-            </button>
-            <button
-              onClick={onClose}
-              className="p-1.5 text-slate-400 hover:text-slate-200 rounded-lg hover:bg-slate-800 transition-colors md:hidden"
-              aria-label="Close sidebar"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-
-        {/* New Chat Button / Form */}
-        <div className="p-3 border-b border-slate-800/80">
-          {!isCreating ? (
-            <button
-              onClick={() => setIsCreating(true)}
-              className="w-full flex items-center justify-center gap-2 py-2.5 px-3 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 rounded-xl text-xs font-medium transition-all"
-            >
-              <Plus className="w-4 h-4" />
-              <span>New Chat Session</span>
-            </button>
-          ) : (
-            <form onSubmit={handleCreateSubmit} className="space-y-2 animate-in fade-in">
-              <input
-                type="text"
-                value={newSessionName}
-                onChange={(e) => setNewSessionName(e.target.value)}
-                placeholder="session-name (e.g. math-notes)"
-                autoFocus
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
-              />
-              <div className="flex items-center gap-2">
-                <button
-                  type="submit"
-                  disabled={!newSessionName.trim()}
-                  className="flex-1 py-1 px-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg text-xs font-medium transition-colors"
-                >
-                  Create
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsCreating(false)}
-                  className="py-1 px-2 text-slate-400 hover:text-slate-200 text-xs rounded-lg hover:bg-slate-800 transition-colors"
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
-          )}
-        </div>
-
-        {/* Sessions list */}
-        <div className="flex-1 overflow-y-auto p-3 space-y-1">
-          {sessions.length === 0 ? (
-            <div className="text-center py-8 text-xs text-slate-500">
-              No sessions yet. Click New Chat to start.
+      <aside className={`fixed lg:static inset-y-0 left-0 z-40 w-[280px] flex flex-col bg-surface-900 border-r border-slate-800/80 transition-transform duration-300 lg:translate-x-0 ${
+        isOpen ? 'translate-x-0' : '-translate-x-full'
+      }`}>
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800/80">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-brand-600 to-purple-600 flex items-center justify-center shadow-lg shadow-brand-900/30">
+              <Bot className="w-4.5 h-4.5 text-white" />
             </div>
-          ) : (
-            sessions.map((sess) => {
-              const isActive = sess.id === activeSessionId;
-              return (
-                <div
-                  key={sess.id}
-                  onClick={() => onSelectSession(sess.id)}
-                  className={`group relative flex items-center justify-between p-2.5 rounded-xl cursor-pointer text-xs transition-all ${
-                    isActive
-                      ? 'bg-slate-800 text-white font-medium border border-slate-700/80 shadow-sm'
-                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+            <span className="text-sm font-bold text-slate-100">AI Agent</span>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 lg:hidden">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* New chat button */}
+        <div className="px-3 pt-3 pb-1">
+          <button
+            onClick={handleNewChat}
+            disabled={creating}
+            className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-500 text-white text-sm font-medium transition-all shadow-lg shadow-brand-600/20 disabled:opacity-50"
+          >
+            {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+            New Chat
+          </button>
+        </div>
+
+        {/* Search */}
+        <div className="px-3 py-2">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search conversations..."
+              className="w-full pl-9 pr-3 py-2 rounded-lg bg-surface-850 border border-slate-800/60 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-brand-500/50 transition-colors"
+            />
+          </div>
+        </div>
+
+        {/* Sessions */}
+        <div className="flex-1 overflow-y-auto px-2 pb-2">
+          <div className="px-2 py-1.5">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-600">Chats</p>
+          </div>
+          <div className="space-y-0.5">
+            {filteredSessions.length === 0 ? (
+              <p className="text-xs text-slate-600 px-3 py-4 text-center">No conversations</p>
+            ) : (
+              filteredSessions.map(session => (
+                <button
+                  key={session.id}
+                  onClick={() => handleSelectSession(session.id)}
+                  onContextMenu={(e) => handleContextMenu(e, session.id)}
+                  className={`group w-full flex items-center justify-between px-3 py-2 rounded-lg text-left transition-all ${
+                    activeSessionId === session.id
+                      ? 'bg-brand-600/15 border border-brand-500/20 text-brand-200'
+                      : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200 border border-transparent'
                   }`}
                 >
-                  <div className="flex items-center gap-2 truncate pr-2">
-                    <MessageSquare className={`w-3.5 h-3.5 flex-shrink-0 ${isActive ? 'text-indigo-400' : 'text-slate-500'}`} />
-                    <span className="truncate">{sess.title || sess.id}</span>
+                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                    <MessageSquare className={`w-3.5 h-3.5 flex-shrink-0 ${activeSessionId === session.id ? 'text-brand-400' : 'text-slate-600'}`} />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-medium truncate">{session.title || session.id}</p>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className="text-[10px] text-slate-600">{session.messagesCount || session.messageCount || 0} msgs</span>
+                        <span className="text-[10px] text-slate-700">·</span>
+                        <span className="text-[10px] text-slate-600">{timeAgo(session.updatedAt)}</span>
+                      </div>
+                    </div>
                   </div>
-
-                  {/* Delete session button (except default) */}
-                  {sess.id !== 'default' && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (confirm(`Delete session "${sess.title || sess.id}"?`)) {
-                          onDeleteSession(sess.id);
-                        }
-                      }}
-                      className="opacity-0 group-hover:opacity-100 p-1 text-slate-500 hover:text-red-400 rounded transition-opacity"
-                      title="Delete session"
-                      aria-label={`Delete session ${sess.id}`}
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-              );
-            })
-          )}
+                  <button
+                    onClick={(e) => handleContextMenu(e, session.id)}
+                    className="p-1 rounded opacity-0 group-hover:opacity-100 text-slate-500 hover:text-slate-300 hover:bg-slate-700/60 transition-all"
+                  >
+                    <MoreHorizontal className="w-3.5 h-3.5" />
+                  </button>
+                </button>
+              ))
+            )}
+          </div>
         </div>
 
-        {/* Footer info */}
-        <div className="p-3 border-t border-slate-800/80 text-[11px] text-slate-500 flex items-center justify-between">
-          <span>AI Terminal Agent v2.0</span>
-          <span className="flex items-center gap-1 text-emerald-400">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-            Online
-          </span>
+        {/* Bottom nav */}
+        <div className="border-t border-slate-800/80 px-2 py-2 space-y-0.5">
+          <button
+            onClick={() => { onShowHistory?.(); onClose?.(); }}
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs text-slate-400 hover:bg-slate-800/60 hover:text-slate-200 transition-all"
+          >
+            <BookOpen className="w-3.5 h-3.5 text-purple-400" /> History
+          </button>
+          <button
+            onClick={() => { onShowFiles?.(); onClose?.(); }}
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs text-slate-400 hover:bg-slate-800/60 hover:text-slate-200 transition-all"
+          >
+            <FileText className="w-3.5 h-3.5 text-emerald-400" /> Files
+          </button>
+          <button
+            onClick={() => { navigate('/settings'); onClose?.(); }}
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs text-slate-400 hover:bg-slate-800/60 hover:text-slate-200 transition-all"
+          >
+            <Settings className="w-3.5 h-3.5 text-slate-500" /> Settings
+          </button>
+        </div>
+
+        {/* User */}
+        <div className="border-t border-slate-800/80 px-3 py-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-brand-500 to-purple-500 flex items-center justify-center text-[11px] font-bold text-white flex-shrink-0">
+              {user?.name?.[0]?.toUpperCase() || 'U'}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-medium text-slate-200 truncate">{user?.name || 'User'}</p>
+              <p className="text-[10px] text-slate-500 truncate">{user?.email || ''}</p>
+            </div>
+            <button
+              onClick={() => { logout(); navigate('/login'); }}
+              className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-950/30 transition-all"
+              title="Logout"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
       </aside>
+
+      {ctxMenu && (
+        <ContextMenu
+          sessionId={ctxMenu.sessionId}
+          position={ctxMenu.position}
+          onClose={() => setCtxMenu(null)}
+          onRename={handleRename}
+          onDelete={handleDelete}
+          onDuplicate={duplicateSession}
+          onArchive={archiveSession}
+        />
+      )}
     </>
   );
 }

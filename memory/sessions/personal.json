@@ -20,5 +20,7 @@
       "role": "assistant",
       "content": "Hello! How can I assist you today? Whether you need help with a project, have a question, or just want to brainstorm ideas, I'm here to help."
     }
-  ]
+  ],
+  "provider": "gemini",
+  "model": "gemini-2.0-flash"
 }
