@@ -1,26 +1,69 @@
 const fs = require("fs");
+const fsPromises = require("fs").promises;
 const path = require("path");
 const { aiConfig, validateProvider, validateThinkingLevel } = require("../config/aiConfig");
 
 const MEMORY_DIR = path.join(__dirname, "../memory");
-const SESSION_DIR = path.join(MEMORY_DIR, "sessions");
-const ACTIVE_FILE = path.join(MEMORY_DIR, "active_session.txt");
-const ACTIVE_JSON_FILE = path.join(MEMORY_DIR, "active_session.json");
+const LEGACY_SESSION_DIR = path.join(MEMORY_DIR, "sessions");
+const USERS_DIR = path.join(MEMORY_DIR, "users");
 
-function readActiveSession() {
-    if (!fs.existsSync(ACTIVE_JSON_FILE)) {
+function getUserBaseDir(userId) {
+    const cleanId = (userId || "default_user").replace(/[^a-zA-Z0-9_-]/g, "_");
+    const userDir = path.join(USERS_DIR, cleanId);
+    if (!fs.existsSync(userDir)) {
+        fs.mkdirSync(userDir, { recursive: true });
+    }
+    return userDir;
+}
+
+function getUserSessionDir(userId) {
+    const userBase = getUserBaseDir(userId);
+    const sessionDir = path.join(userBase, "sessions");
+
+    if (!fs.existsSync(sessionDir)) {
+        fs.mkdirSync(sessionDir, { recursive: true });
+
+        // Seed with legacy starter sessions if available
+        if (fs.existsSync(LEGACY_SESSION_DIR)) {
+            try {
+                const files = fs.readdirSync(LEGACY_SESSION_DIR).filter(f => f.endsWith(".json"));
+                for (const file of files) {
+                    const src = path.join(LEGACY_SESSION_DIR, file);
+                    const dest = path.join(sessionDir, file);
+                    if (!fs.existsSync(dest)) {
+                        fs.copyFileSync(src, dest);
+                    }
+                }
+            } catch (e) {
+                // Ignore copy errors
+            }
+        }
+    }
+    return sessionDir;
+}
+
+function getUserActiveFile(userId) {
+    const userBase = getUserBaseDir(userId);
+    return path.join(userBase, "active_session.json");
+}
+
+function readActiveSession(userId) {
+    const activeFile = getUserActiveFile(userId);
+    if (!fs.existsSync(activeFile)) {
         const defaultSession = { active: "default", lastOpened: new Date().toISOString() };
-        fs.writeFileSync(ACTIVE_JSON_FILE, JSON.stringify(defaultSession, null, 2));
+        try {
+            fs.writeFileSync(activeFile, JSON.stringify(defaultSession, null, 2));
+        } catch (e) {}
         return defaultSession;
     }
     try {
-        return JSON.parse(fs.readFileSync(ACTIVE_JSON_FILE, "utf8"));
+        return JSON.parse(fs.readFileSync(activeFile, "utf8"));
     } catch (e) {
         return { active: "default" };
     }
 }
 
-function getSessionObject(sessionName, file) {
+function getSessionObject(sessionName, file, userId) {
     const now = new Date().toISOString();
     const defaultTitle = sessionName.charAt(0).toUpperCase() + sessionName.slice(1) + " Help";
     let session = {
@@ -64,15 +107,16 @@ function getSessionObject(sessionName, file) {
                 }
             }
         } catch (e) {
-            // Ignore error, return default structure
+            // Return default
         }
     }
     return session;
 }
 
-function saveMessage(sessionName, message) {
-    const sessionFile = path.join(SESSION_DIR, `${sessionName}.json`);
-    const session = getSessionObject(sessionName, sessionFile);
+function saveMessage(sessionName, message, userId) {
+    const sessionDir = getUserSessionDir(userId);
+    const sessionFile = path.join(sessionDir, `${sessionName}.json`);
+    const session = getSessionObject(sessionName, sessionFile, userId);
 
     const formattedMsg = {
         role: message.role,
@@ -84,19 +128,20 @@ function saveMessage(sessionName, message) {
     fs.writeFileSync(sessionFile, JSON.stringify(session, null, 2));
 }
 
-function getActiveSession() {
-    const active = readActiveSession();
+function getActiveSession(userId) {
+    const active = readActiveSession(userId);
     return active.active;
 }
 
-function getSessionFile() {
-    const session = getActiveSession();
-    return path.join(SESSION_DIR, `${session}.json`);
+function getSessionFile(userId) {
+    const sessionDir = getUserSessionDir(userId);
+    const session = getActiveSession(userId);
+    return path.join(sessionDir, `${session}.json`);
 }
 
-function loadHistory() {
-    const file = getSessionFile();
-    const active = getActiveSession();
+function loadHistory(userId) {
+    const file = getSessionFile(userId);
+    const active = getActiveSession(userId);
 
     if (!fs.existsSync(file)) {
         const now = new Date().toISOString();
@@ -133,10 +178,10 @@ function loadHistory() {
     }
 }
 
-function saveHistory(history) {
-    const file = getSessionFile();
-    const active = getActiveSession();
-    const session = getSessionObject(active, file);
+function saveHistory(history, userId) {
+    const file = getSessionFile(userId);
+    const active = getActiveSession(userId);
+    const session = getSessionObject(active, file, userId);
 
     session.messages = history.map(msg => ({
         role: msg.role,
@@ -147,71 +192,226 @@ function saveHistory(history) {
     fs.writeFileSync(file, JSON.stringify(session, null, 2));
 }
 
-const fsPromises = require("fs").promises;
-
 function validateSessionId(sessionId) {
     if (!sessionId || typeof sessionId !== "string" || !/^[a-zA-Z0-9_-]+$/.test(sessionId)) {
         throw new Error("Invalid session ID");
     }
 }
 
-async function setActiveSession(name) {
+async function setActiveSession(name, userId) {
     validateSessionId(name);
-    await fsPromises.writeFile(ACTIVE_FILE, name);
+    const activeFile = getUserActiveFile(userId);
     await fsPromises.writeFile(
-        ACTIVE_JSON_FILE,
+        activeFile,
         JSON.stringify({ active: name, lastOpened: new Date().toISOString() }, null, 2)
     );
 }
 
-async function deleteSession(sessionId) {
+function listUserSessions(userId) {
+    const sessionDir = getUserSessionDir(userId);
+    if (!fs.existsSync(sessionDir)) {
+        return [];
+    }
+
+    const files = fs.readdirSync(sessionDir).filter(file => file.endsWith(".json"));
+
+    return files.map(file => {
+        const name = file.replace(".json", "");
+        const filePath = path.join(sessionDir, file);
+        try {
+            const content = fs.readFileSync(filePath, "utf8").trim();
+            if (!content) {
+                const stats = fs.statSync(filePath);
+                const updatedTime = stats.mtime.toISOString();
+                return {
+                    id: name,
+                    title: name.charAt(0).toUpperCase() + name.slice(1) + " Help",
+                    messageCount: 0,
+                    messagesCount: 0,
+                    updatedAt: updatedTime,
+                    updatedDate: updatedTime
+                };
+            }
+            const parsed = JSON.parse(content);
+            if (Array.isArray(parsed)) {
+                const stats = fs.statSync(filePath);
+                const updatedTime = stats.mtime.toISOString();
+                return {
+                    id: name,
+                    title: name.charAt(0).toUpperCase() + name.slice(1) + " Help",
+                    messageCount: parsed.length,
+                    messagesCount: parsed.length,
+                    updatedAt: updatedTime,
+                    updatedDate: updatedTime
+                };
+            } else if (parsed && typeof parsed === "object") {
+                const msgCount = Array.isArray(parsed.messages) ? parsed.messages.length : 0;
+                const updatedTime = parsed.updatedAt || parsed.createdAt || new Date().toISOString();
+                return {
+                    id: parsed.id || name,
+                    title: parsed.title || (name.charAt(0).toUpperCase() + name.slice(1) + " Help"),
+                    provider: parsed.provider,
+                    model: parsed.model,
+                    thinkingLevel: parsed.thinkingLevel,
+                    messageCount: msgCount,
+                    messagesCount: msgCount,
+                    updatedAt: updatedTime,
+                    updatedDate: updatedTime
+                };
+            }
+        } catch (e) {}
+
+        return {
+            id: name,
+            title: name.charAt(0).toUpperCase() + name.slice(1) + " Help",
+            messageCount: 0,
+            messagesCount: 0,
+            updatedAt: new Date().toISOString(),
+            updatedDate: new Date().toISOString()
+        };
+    });
+}
+
+async function createNewSession(name, options = {}, userId) {
+    validateSessionId(name);
+    const sessionDir = getUserSessionDir(userId);
+    const sessionFile = path.join(sessionDir, `${name}.json`);
+
+    const sessionProvider = options.provider || aiConfig.provider || "gemini";
+    const sessionModel = options.model || aiConfig.model || "gemini-2.0-flash";
+    const sessionThinking = options.thinkingLevel || aiConfig.thinkingLevel || "medium";
+
+    if (!fs.existsSync(sessionFile)) {
+        const now = new Date().toISOString();
+        const initialSession = {
+            id: name,
+            title: name.charAt(0).toUpperCase() + name.slice(1) + " Help",
+            provider: sessionProvider,
+            model: sessionModel,
+            thinkingLevel: sessionThinking,
+            createdAt: now,
+            updatedAt: now,
+            messages: []
+        };
+        await fsPromises.writeFile(sessionFile, JSON.stringify(initialSession, null, 2));
+    }
+
+    await setActiveSession(name, userId);
+    return {
+        success: true,
+        message: `Session '${name}' created`,
+        settings: {
+            provider: sessionProvider,
+            model: sessionModel,
+            thinkingLevel: sessionThinking
+        }
+    };
+}
+
+async function switchUserSession(name, userId) {
+    validateSessionId(name);
+    const sessionDir = getUserSessionDir(userId);
+    const sessionFile = path.join(sessionDir, `${name}.json`);
+
+    if (!fs.existsSync(sessionFile)) {
+        throw new Error("Session not found");
+    }
+
+    await setActiveSession(name, userId);
+
+    let history = [];
+    let sessionSettings = {
+        provider: aiConfig.provider || "gemini",
+        model: aiConfig.model || "gemini-2.0-flash",
+        thinkingLevel: aiConfig.thinkingLevel || "medium"
+    };
+
+    try {
+        const content = fs.readFileSync(sessionFile, "utf8").trim();
+        if (content) {
+            const parsed = JSON.parse(content);
+            if (Array.isArray(parsed)) {
+                history = parsed.map(msg => ({
+                    role: msg.role,
+                    text: msg.text || msg.content || "",
+                    content: msg.content || msg.text || ""
+                }));
+            } else if (parsed && typeof parsed === "object") {
+                sessionSettings = {
+                    provider: parsed.provider || aiConfig.provider || "gemini",
+                    model: parsed.model || aiConfig.model || "gemini-2.0-flash",
+                    thinkingLevel: parsed.thinkingLevel || aiConfig.thinkingLevel || "medium",
+                };
+                if (Array.isArray(parsed.messages)) {
+                    history = parsed.messages.map(msg => ({
+                        role: msg.role,
+                        text: msg.text || msg.content || "",
+                        content: msg.content || msg.text || ""
+                    }));
+                }
+            }
+        }
+    } catch (e) {
+        history = [];
+    }
+
+    return {
+        message: `Switched to ${name}`,
+        history,
+        settings: sessionSettings
+    };
+}
+
+async function deleteSession(sessionId, userId) {
     validateSessionId(sessionId);
-    const sessionFile = path.join(SESSION_DIR, `${sessionId}.json`);
-    
+    const sessionDir = getUserSessionDir(userId);
+    const sessionFile = path.join(sessionDir, `${sessionId}.json`);
+
     try {
         await fsPromises.access(sessionFile);
     } catch (err) {
         throw new Error("Session not found");
     }
-    
+
     await fsPromises.unlink(sessionFile);
-    
-    const activeInfo = readActiveSession();
+
+    const activeInfo = readActiveSession(userId);
     if (activeInfo && activeInfo.active === sessionId) {
-        await setActiveSession("default");
+        await setActiveSession("default", userId);
     }
 }
 
-async function renameSession(oldId, newId) {
+async function renameSession(oldId, newId, userId) {
     validateSessionId(oldId);
     validateSessionId(newId);
-    
+
     if (oldId === newId) {
         throw new Error("New session ID must be different");
     }
-    
-    const oldFile = path.join(SESSION_DIR, `${oldId}.json`);
-    const newFile = path.join(SESSION_DIR, `${newId}.json`);
-    
+
+    const sessionDir = getUserSessionDir(userId);
+    const oldFile = path.join(sessionDir, `${oldId}.json`);
+    const newFile = path.join(sessionDir, `${newId}.json`);
+
     let content;
     try {
         content = await fsPromises.readFile(oldFile, "utf8");
     } catch (err) {
         throw new Error("Session not found");
     }
-    
+
     const existsNew = await fsPromises.access(newFile).then(() => true).catch(() => false);
     if (existsNew) {
         throw new Error("Session already exists");
     }
-    
+
     let session;
     try {
         session = JSON.parse(content);
     } catch (e) {
         session = {};
     }
-    
+
     session.id = newId;
     const oldDefaultTitle = oldId.charAt(0).toUpperCase() + oldId.slice(1) + " Help";
     if (session.title === oldDefaultTitle || !session.title) {
@@ -221,74 +421,76 @@ async function renameSession(oldId, newId) {
     if (!session.model) session.model = aiConfig.model || "gemini-2.0-flash";
     if (!session.thinkingLevel) session.thinkingLevel = aiConfig.thinkingLevel || "medium";
     session.updatedAt = new Date().toISOString();
-    
+
     await fsPromises.writeFile(newFile, JSON.stringify(session, null, 2));
     await fsPromises.unlink(oldFile);
-    
-    const activeInfo = readActiveSession();
+
+    const activeInfo = readActiveSession(userId);
     if (activeInfo && activeInfo.active === oldId) {
-        await setActiveSession(newId);
+        await setActiveSession(newId, userId);
     }
 }
 
-async function clearSession(sessionId) {
+async function clearSession(sessionId, userId) {
     validateSessionId(sessionId);
-    const sessionFile = path.join(SESSION_DIR, `${sessionId}.json`);
-    
+    const sessionDir = getUserSessionDir(userId);
+    const sessionFile = path.join(sessionDir, `${sessionId}.json`);
+
     let content;
     try {
         content = await fsPromises.readFile(sessionFile, "utf8");
     } catch (err) {
         throw new Error("Session not found");
     }
-    
+
     let session;
     try {
         session = JSON.parse(content);
     } catch (e) {
         session = {};
     }
-    
+
     session.id = sessionId;
     if (!session.title) {
         session.title = sessionId.charAt(0).toUpperCase() + sessionId.slice(1) + " Help";
     }
     session.messages = [];
     session.updatedAt = new Date().toISOString();
-    
+
     await fsPromises.writeFile(sessionFile, JSON.stringify(session, null, 2));
 }
 
-async function duplicateSession(sourceId, targetId) {
+async function duplicateSession(sourceId, targetId, userId) {
     validateSessionId(sourceId);
     validateSessionId(targetId);
-    
+
     if (sourceId === targetId) {
         throw new Error("Target session ID must be different");
     }
-    
-    const sourceFile = path.join(SESSION_DIR, `${sourceId}.json`);
-    const targetFile = path.join(SESSION_DIR, `${targetId}.json`);
-    
+
+    const sessionDir = getUserSessionDir(userId);
+    const sourceFile = path.join(sessionDir, `${sourceId}.json`);
+    const targetFile = path.join(sessionDir, `${targetId}.json`);
+
     let content;
     try {
         content = await fsPromises.readFile(sourceFile, "utf8");
     } catch (err) {
         throw new Error("Session not found");
     }
-    
+
     const existsTarget = await fsPromises.access(targetFile).then(() => true).catch(() => false);
     if (existsTarget) {
         throw new Error("Session already exists");
     }
-    
+
     let session;
     try {
         session = JSON.parse(content);
     } catch (e) {
         session = {};
     }
-    
+
     const now = new Date().toISOString();
     session.id = targetId;
     session.title = targetId.charAt(0).toUpperCase() + targetId.slice(1) + " Help";
@@ -300,31 +502,32 @@ async function duplicateSession(sourceId, targetId) {
     if (!session.messages) {
         session.messages = [];
     }
-    
+
     await fsPromises.writeFile(targetFile, JSON.stringify(session, null, 2));
     return { success: true };
 }
 
-async function getSessionInfo(sessionId) {
+async function getSessionInfo(sessionId, userId) {
     validateSessionId(sessionId);
-    const sessionFile = path.join(SESSION_DIR, `${sessionId}.json`);
-    
+    const sessionDir = getUserSessionDir(userId);
+    const sessionFile = path.join(sessionDir, `${sessionId}.json`);
+
     let content;
     try {
         content = await fsPromises.readFile(sessionFile, "utf8");
     } catch (err) {
         throw new Error("Session not found");
     }
-    
+
     let session;
     try {
         session = JSON.parse(content);
     } catch (e) {
         session = {};
     }
-    
-    const activeSessionName = readActiveSession().active;
-    
+
+    const activeSessionName = readActiveSession(userId).active;
+
     return {
         id: session.id || sessionId,
         title: session.title || (sessionId.charAt(0).toUpperCase() + sessionId.slice(1) + " Help"),
@@ -338,10 +541,11 @@ async function getSessionInfo(sessionId) {
     };
 }
 
-async function updateSessionSettings(sessionId, settings = {}) {
+async function updateSessionSettings(sessionId, settings = {}, userId) {
     validateSessionId(sessionId);
-    const sessionFile = path.join(SESSION_DIR, `${sessionId}.json`);
-    const session = getSessionObject(sessionId, sessionFile);
+    const sessionDir = getUserSessionDir(userId);
+    const sessionFile = path.join(sessionDir, `${sessionId}.json`);
+    const session = getSessionObject(sessionId, sessionFile, userId);
 
     if (settings.provider) {
         validateProvider(settings.provider);
@@ -364,10 +568,11 @@ async function updateSessionSettings(sessionId, settings = {}) {
     };
 }
 
-async function getSessionSettings(sessionId) {
+async function getSessionSettings(sessionId, userId) {
     validateSessionId(sessionId);
-    const sessionFile = path.join(SESSION_DIR, `${sessionId}.json`);
-    const session = getSessionObject(sessionId, sessionFile);
+    const sessionDir = getUserSessionDir(userId);
+    const sessionFile = path.join(sessionDir, `${sessionId}.json`);
+    const session = getSessionObject(sessionId, sessionFile, userId);
     return {
         provider: session.provider || aiConfig.provider || "gemini",
         model: session.model || aiConfig.model || "gemini-2.0-flash",
@@ -375,15 +580,16 @@ async function getSessionSettings(sessionId) {
     };
 }
 
-async function searchMessages(query) {
+async function searchMessages(query, userId) {
     if (typeof query !== "string") {
         throw new Error("Query must be a string");
     }
     const cleanQuery = query.toLowerCase();
+    const sessionDir = getUserSessionDir(userId);
 
     let files = [];
     try {
-        files = await fsPromises.readdir(SESSION_DIR);
+        files = await fsPromises.readdir(sessionDir);
     } catch (err) {
         return [];
     }
@@ -391,7 +597,7 @@ async function searchMessages(query) {
     const results = [];
     for (const file of files) {
         if (!file.endsWith(".json")) continue;
-        const filePath = path.join(SESSION_DIR, file);
+        const filePath = path.join(sessionDir, file);
         const sessionName = file.slice(0, -5);
         try {
             const contentStr = await fsPromises.readFile(filePath, "utf8");
@@ -414,16 +620,12 @@ async function searchMessages(query) {
                     });
                 }
             }
-        } catch (e) {
-            // Ignore parse errors/read errors of individual files
-        }
+        } catch (e) {}
     }
     return results;
 }
 
-const EXPORT_DIR = path.join(MEMORY_DIR, "exports");
-
-async function exportSession(sessionId, format) {
+async function exportSession(sessionId, format, userId) {
     validateSessionId(sessionId);
     if (!format || typeof format !== "string") {
         throw new Error("Invalid format");
@@ -433,7 +635,8 @@ async function exportSession(sessionId, format) {
         throw new Error("Unsupported format. Use 'json' or 'markdown'");
     }
 
-    const sessionFile = path.join(SESSION_DIR, `${sessionId}.json`);
+    const sessionDir = getUserSessionDir(userId);
+    const sessionFile = path.join(sessionDir, `${sessionId}.json`);
     let content;
     try {
         content = await fsPromises.readFile(sessionFile, "utf8");
@@ -448,7 +651,9 @@ async function exportSession(sessionId, format) {
         session = {};
     }
 
-    await fsPromises.mkdir(EXPORT_DIR, { recursive: true });
+    const userBase = getUserBaseDir(userId);
+    const exportDir = path.join(userBase, "exports");
+    await fsPromises.mkdir(exportDir, { recursive: true });
 
     let exportContent = "";
     let exportFileName = "";
@@ -483,7 +688,7 @@ async function exportSession(sessionId, format) {
         exportFileName = `${sessionId}.md`;
     }
 
-    const exportFilePath = path.join(EXPORT_DIR, exportFileName);
+    const exportFilePath = path.join(exportDir, exportFileName);
     await fsPromises.writeFile(exportFilePath, exportContent, "utf8");
     return { filePath: exportFilePath, content: exportContent };
 }
@@ -515,7 +720,7 @@ function validateSessionStructure(session) {
     }
 }
 
-async function importSession(sessionData) {
+async function importSession(sessionData, userId) {
     let session;
     if (typeof sessionData === "string") {
         try {
@@ -529,7 +734,8 @@ async function importSession(sessionData) {
 
     validateSessionStructure(session);
 
-    const targetFile = path.join(SESSION_DIR, `${session.id}.json`);
+    const sessionDir = getUserSessionDir(userId);
+    const targetFile = path.join(sessionDir, `${session.id}.json`);
     const exists = await fsPromises.access(targetFile).then(() => true).catch(() => false);
     if (exists) {
         throw new Error("Session ID already exists");
@@ -554,10 +760,13 @@ async function importSession(sessionData) {
     return formattedSession;
 }
 
-async function archiveSession(sessionId) {
+async function archiveSession(sessionId, userId) {
     validateSessionId(sessionId);
-    const sessionFile = path.join(SESSION_DIR, `${sessionId}.json`);
-    const archiveFile = path.join(MEMORY_DIR, "archives", `${sessionId}.json`);
+    const sessionDir = getUserSessionDir(userId);
+    const userBase = getUserBaseDir(userId);
+    const archiveDir = path.join(userBase, "archives");
+    const sessionFile = path.join(sessionDir, `${sessionId}.json`);
+    const archiveFile = path.join(archiveDir, `${sessionId}.json`);
 
     try {
         await fsPromises.access(sessionFile);
@@ -565,7 +774,7 @@ async function archiveSession(sessionId) {
         throw new Error("Session not found");
     }
 
-    await fsPromises.mkdir(path.join(MEMORY_DIR, "archives"), { recursive: true });
+    await fsPromises.mkdir(archiveDir, { recursive: true });
 
     const existsInArchives = await fsPromises.access(archiveFile).then(() => true).catch(() => false);
     if (existsInArchives) {
@@ -574,16 +783,19 @@ async function archiveSession(sessionId) {
 
     await fsPromises.rename(sessionFile, archiveFile);
 
-    const activeInfo = readActiveSession();
+    const activeInfo = readActiveSession(userId);
     if (activeInfo && activeInfo.active === sessionId) {
-        await setActiveSession("default");
+        await setActiveSession("default", userId);
     }
 }
 
-async function restoreSession(sessionId) {
+async function restoreSession(sessionId, userId) {
     validateSessionId(sessionId);
-    const sessionFile = path.join(SESSION_DIR, `${sessionId}.json`);
-    const archiveFile = path.join(MEMORY_DIR, "archives", `${sessionId}.json`);
+    const sessionDir = getUserSessionDir(userId);
+    const userBase = getUserBaseDir(userId);
+    const archiveDir = path.join(userBase, "archives");
+    const sessionFile = path.join(sessionDir, `${sessionId}.json`);
+    const archiveFile = path.join(archiveDir, `${sessionId}.json`);
 
     try {
         await fsPromises.access(archiveFile);
@@ -600,6 +812,7 @@ async function restoreSession(sessionId) {
 }
 
 module.exports = {
+    getUserSessionDir,
     loadHistory,
     saveHistory,
     getActiveSession,
@@ -607,6 +820,9 @@ module.exports = {
     saveMessage,
     validateSessionId,
     setActiveSession,
+    listUserSessions,
+    createNewSession,
+    switchUserSession,
     deleteSession,
     renameSession,
     clearSession,

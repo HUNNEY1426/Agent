@@ -15,78 +15,106 @@ const supportedProviders = [
   "openrouter",
 ];
 
-const defaultProviders = {
-  gemini: {
-    apiKey: process.env.GEMINI_API_KEY,
-    model:
-      process.env.GEMINI_MODEL ||
-      process.env.AI_MODEL ||
-      "gemini-2.0-flash",
-  },
-
-  openai: {
-    apiKey: process.env.OPENAI_API_KEY,
-    model:
-      process.env.OPENAI_MODEL ||
-      "gpt-4o-mini",
-  },
-
-  claude: {
-    apiKey: process.env.ANTHROPIC_API_KEY,
-    model:
-      process.env.CLAUDE_MODEL ||
-      "claude-sonnet-4-20250514",
-  },
-
-  ollama: {
-    baseUrl:
-      process.env.OLLAMA_BASE_URL ||
-      "http://localhost:11434",
-    model:
-      process.env.OLLAMA_MODEL ||
-      "llama3.2",
-  },
-
-  openrouter: {
-    apiKey: process.env.OPENROUTER_API_KEY,
-    model:
-      process.env.OPENROUTER_MODEL ||
-      "liquid/lfm-2.5-2.6b:free",
-  },
-};
+function getProviderSettings(provider) {
+  switch (provider) {
+    case "gemini":
+      return {
+        apiKey: process.env.GEMINI_API_KEY || "",
+        model:
+          process.env.GEMINI_MODEL ||
+          process.env.AI_MODEL ||
+          "gemini-2.0-flash",
+      };
+    case "openai":
+      return {
+        apiKey: process.env.OPENAI_API_KEY || "",
+        model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+      };
+    case "claude":
+      return {
+        apiKey: process.env.ANTHROPIC_API_KEY || "",
+        model:
+          process.env.CLAUDE_MODEL ||
+          "claude-sonnet-4-20250514",
+      };
+    case "ollama":
+      return {
+        baseUrl:
+          process.env.OLLAMA_BASE_URL ||
+          "http://localhost:11434",
+        model: process.env.OLLAMA_MODEL || "llama3.2",
+      };
+    case "openrouter":
+      return {
+        apiKey: process.env.OPENROUTER_API_KEY || "",
+        model:
+          process.env.OPENROUTER_MODEL ||
+          "liquid/lfm-2.5-2.6b:free",
+      };
+    default:
+      return {};
+  }
+}
 
 const aiConfig = {
-  provider: process.env.AI_PROVIDER || "gemini",
+  get provider() {
+    return process.env.AI_PROVIDER || "gemini";
+  },
 
-  model:
-    process.env.AI_MODEL ||
-    process.env.GEMINI_MODEL ||
-    "gemini-2.0-flash",
+  get model() {
+    return (
+      process.env.AI_MODEL ||
+      process.env.GEMINI_MODEL ||
+      "gemini-2.0-flash"
+    );
+  },
 
-  thinkingLevel: process.env.AI_THINKING_LEVEL || "medium",
+  get thinkingLevel() {
+    return process.env.AI_THINKING_LEVEL || "medium";
+  },
 
-  fallbackProviders: (process.env.AI_FALLBACK_PROVIDERS || "")
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean),
+  get fallbackProviders() {
+    return (process.env.AI_FALLBACK_PROVIDERS || "")
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+  },
 
-  providers: defaultProviders,
+  get providers() {
+    return {
+      get gemini() {
+        return getProviderSettings("gemini");
+      },
+      get openai() {
+        return getProviderSettings("openai");
+      },
+      get claude() {
+        return getProviderSettings("claude");
+      },
+      get ollama() {
+        return getProviderSettings("ollama");
+      },
+      get openrouter() {
+        return getProviderSettings("openrouter");
+      },
+    };
+  },
 
   // Direct access compatibility
   get gemini() {
-    return this.providers.gemini;
+    return getProviderSettings("gemini");
   },
   get openai() {
-    return this.providers.openai;
+    return getProviderSettings("openai");
   },
   get claude() {
-    return this.providers.claude;
+    return getProviderSettings("claude");
   },
   get ollama() {
-    return this.providers.ollama;
+    return getProviderSettings("ollama");
   },
   get openrouter() {
-    return this.providers.openrouter;
+    return getProviderSettings("openrouter");
   },
 };
 
@@ -108,8 +136,7 @@ function validateThinkingLevel(level) {
 
 function getProviderConfig(provider = aiConfig.provider) {
   validateProvider(provider);
-
-  const config = aiConfig.providers[provider];
+  const config = getProviderSettings(provider);
 
   return {
     ...config,

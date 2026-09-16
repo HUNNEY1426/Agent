@@ -27,15 +27,15 @@ class ProviderManager {
 
   getCurrentSettings() {
     return {
-      provider: this.runtimeSettings.provider,
-      model: this.runtimeSettings.model,
-      thinkingLevel: this.runtimeSettings.thinkingLevel,
+      provider: this.runtimeSettings.provider || aiConfig.provider || "gemini",
+      model: this.runtimeSettings.model || aiConfig.model || "gemini-2.0-flash",
+      thinkingLevel: this.runtimeSettings.thinkingLevel || aiConfig.thinkingLevel || "medium",
     };
   }
 
   isProviderConfigured(providerName) {
     validateProvider(providerName);
-    const cfg = aiConfig.providers?.[providerName];
+    const cfg = getProviderConfig(providerName);
     if (!cfg) return false;
 
     switch (providerName) {
@@ -135,12 +135,16 @@ class ProviderManager {
 
   createProvider(providerName) {
     validateProvider(providerName);
+    const config = getProviderConfig(providerName);
 
     if (this.providers[providerName]) {
+      this.providers[providerName].config = config;
+      if (this.providers[providerName].apiKey !== undefined) {
+        this.providers[providerName].apiKey = config.apiKey;
+      }
       return this.providers[providerName];
     }
 
-    const config = getProviderConfig(providerName);
     let provider;
 
     switch (providerName) {
@@ -181,8 +185,9 @@ class ProviderManager {
 
     const model =
       options.model ||
-      this.runtimeSettings.model ||
-      aiConfig.model;
+      (options.provider && options.provider !== this.runtimeSettings.provider ? undefined : this.runtimeSettings.model) ||
+      aiConfig.providers?.[primaryProvider]?.model ||
+      getDefaultModel(primaryProvider);
 
     const thinkingLevel =
       options.thinkingLevel ||
@@ -192,7 +197,7 @@ class ProviderManager {
     // Build ordered fallback chain
     const configuredFallbacks = (aiConfig.fallbackProviders && aiConfig.fallbackProviders.length > 0)
       ? aiConfig.fallbackProviders
-      : ["gemini", "openrouter", "openai", "claude", "ollama"];
+      : [];
 
     const candidates = [
       primaryProvider,

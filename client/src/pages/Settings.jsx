@@ -61,10 +61,15 @@ export default function Settings() {
     fileService.getStatus().then(setPdfStatus).catch(() => {});
   }, []);
 
-  const handleSaveName = () => {
+  const handleSaveName = async () => {
     setSaving(true);
-    updateProfile({ name });
-    setTimeout(() => setSaving(false), 500);
+    try {
+      await updateProfile({ name });
+    } catch (e) {
+      alert(e.message || 'Failed to update profile');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const toggleHistory = async () => {
@@ -229,6 +234,11 @@ export default function Settings() {
           </SettingRow>
           <SettingRow label="Email">
             <span className="text-xs text-slate-500">{user?.email || 'Not set'}</span>
+          </SettingRow>
+          <SettingRow label="Account Created">
+            <span className="text-xs text-slate-500">
+              {user?.createdAt ? new Date(user.createdAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : 'Unknown'}
+            </span>
           </SettingRow>
         </Section>
       </div>

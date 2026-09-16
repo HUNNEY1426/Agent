@@ -4,15 +4,19 @@ const path = require("path");
 const providerManager  = require("./providerManager");
 const pdfService       = require("./pdf/pdfService");
 const historyService   = require("./history/historyService");
-const { loadHistory, readActiveSession, saveMessage, getSessionObject } = require("./sessionService");
+const {
+    loadHistory,
+    readActiveSession,
+    saveMessage,
+    getSessionObject,
+    getUserSessionDir
+} = require("./sessionService");
 const { aiConfig } = require("../config/aiConfig");
 
-const MEMORY_DIR = path.join(__dirname, "../memory");
-const SESSION_DIR = path.join(MEMORY_DIR, "sessions");
-
 async function askAI(question, options = {}) {
-    const active = readActiveSession();
-    const history = loadHistory();
+    const userId = options.userId || "default_user";
+    const active = readActiveSession(userId);
+    const history = loadHistory(userId);
 
     const userMessage = {
         role: "user",
@@ -21,7 +25,7 @@ async function askAI(question, options = {}) {
     };
 
     const targetDoc = options.pdfId || options.pdfName || options.pdf || options.files;
-    const pdfStatus = pdfService.getStatus();
+    const pdfStatus = pdfService.getStatus(userId);
     let finalUserPrompt = question;
     let citations        = [];
     let pdfUsed          = false;
@@ -29,10 +33,10 @@ async function askAI(question, options = {}) {
     let historyUsed      = false;
     let pdfNames         = [];
 
-    // ── PDF context ──────────────────────────────────────────
+    // ── PDF context (scoped to userId) ───────────────────────
     let pdfContextText = "";
     if (pdfStatus.enabled || targetDoc) {
-        const pdfContext = pdfService.buildContext(question, 4, targetDoc);
+        const pdfContext = pdfService.buildContext(question, 4, targetDoc, userId);
         citations = pdfContext.citations || [];
         pdfUsed   = pdfContext.hasContext;
         if (pdfContext.hasContext) {
@@ -41,10 +45,10 @@ async function askAI(question, options = {}) {
         }
     }
 
-    // ── History context ──────────────────────────────────────
+    // ── History context (scoped to userId) ───────────────────
     let historyContextText = "";
-    if (historyService.isEnabled()) {
-        const histCtx = historyService.buildContext(question, active.active);
+    if (historyService.isEnabled(userId)) {
+        const histCtx = historyService.buildContext(question, active.active, {}, userId);
         historyUsed      = histCtx.hasContext;
         historyCitations = histCtx.citations || [];
         if (histCtx.hasContext) {
@@ -90,8 +94,9 @@ async function askAI(question, options = {}) {
         }
     ];
 
-    const sessionFile = path.join(SESSION_DIR, `${active.active}.json`);
-    const session = getSessionObject(active.active, sessionFile);
+    const sessionDir = getUserSessionDir(userId);
+    const sessionFile = path.join(sessionDir, `${active.active}.json`);
+    const session = getSessionObject(active.active, sessionFile, userId);
 
     const mergedOptions = {
         provider: options.provider || session.provider || aiConfig.provider || "gemini",
@@ -100,8 +105,8 @@ async function askAI(question, options = {}) {
         ...options
     };
 
-    // Safe server-side debug log (Step 15: NEVER print API keys!)
-    console.log(`[AI REQUEST] provider=${mergedOptions.provider} model=${mergedOptions.model || "default"} sessionId=${active.active} pdfUsed=${pdfUsed} pdfNames=${pdfNames.join(",") || "none"} historyUsed=${historyUsed}`);
+    // Safe server-side debug log (NEVER print API keys or passwords!)
+    console.log(`[AI REQUEST] user=${userId} provider=${mergedOptions.provider} model=${mergedOptions.model || "default"} sessionId=${active.active} pdfUsed=${pdfUsed} pdfNames=${pdfNames.join(",") || "none"} historyUsed=${historyUsed}`);
 
     const result = await providerManager.generateResponse(messages, mergedOptions);
     const answer = result.content || result.text || "";
@@ -112,8 +117,8 @@ async function askAI(question, options = {}) {
         text: answer
     };
 
-    saveMessage(active.active, userMessage);
-    saveMessage(active.active, assistantMessage);
+    saveMessage(active.active, userMessage, userId);
+    saveMessage(active.active, assistantMessage, userId);
 
     return {
         answer,

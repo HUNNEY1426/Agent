@@ -2,6 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const { extractPDFText } = require("./pdfExtractor");
 const {
+    getPDFDirs,
     ensureDirectories,
     calculateFileHash,
     chunkPages,
@@ -14,53 +15,53 @@ const {
     searchChunks,
 } = require("./pdfIndexer");
 
-const BASE_DIR = path.join(__dirname, "../../memory/pdf");
-const STATE_FILE = path.join(BASE_DIR, "state.json");
+function getStateFilePath(userId) {
+    const { baseDir } = getPDFDirs(userId);
+    return path.join(baseDir, "state.json");
+}
 
-function loadState() {
-    ensureDirectories();
-    if (!fs.existsSync(STATE_FILE)) {
+function loadState(userId) {
+    const stateFile = getStateFilePath(userId);
+    if (!fs.existsSync(stateFile)) {
         const initialState = { enabled: false, activeDocumentId: "all" };
-        fs.writeFileSync(STATE_FILE, JSON.stringify(initialState, null, 2));
+        try {
+            fs.writeFileSync(stateFile, JSON.stringify(initialState, null, 2));
+        } catch (e) {}
         return initialState;
     }
     try {
-        return JSON.parse(fs.readFileSync(STATE_FILE, "utf8"));
+        return JSON.parse(fs.readFileSync(stateFile, "utf8"));
     } catch (e) {
         return { enabled: false, activeDocumentId: "all" };
     }
 }
 
-function saveState(state) {
-    ensureDirectories();
-    fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
+function saveState(state, userId) {
+    const stateFile = getStateFilePath(userId);
+    fs.writeFileSync(stateFile, JSON.stringify(state, null, 2));
 }
 
 class PDFService {
-    constructor() {
-        this.state = loadState();
-    }
-
-    getStatus() {
-        this.state = loadState();
-        const allDocs = getAllMetadata();
+    getStatus(userId) {
+        const state = loadState(userId);
+        const allDocs = getAllMetadata(userId);
         let activeDocName = "All PDFs";
 
-        if (this.state.activeDocumentId !== "all") {
-            const activeMeta = getMetadata(this.state.activeDocumentId);
-            activeDocName = activeMeta ? activeMeta.originalFilename : this.state.activeDocumentId;
+        if (state.activeDocumentId !== "all") {
+            const activeMeta = getMetadata(state.activeDocumentId, userId);
+            activeDocName = activeMeta ? activeMeta.originalFilename : state.activeDocumentId;
         }
 
         return {
-            enabled: !!this.state.enabled,
-            activeDocumentId: this.state.activeDocumentId || "all",
+            enabled: !!state.enabled,
+            activeDocumentId: state.activeDocumentId || "all",
             activeDocumentName: activeDocName,
             totalDocuments: allDocs.length,
             documents: allDocs,
         };
     }
 
-    async addPDF(filePath) {
+    async addPDF(filePath, userId) {
         const resolvedPath = path.resolve(filePath);
         if (!fs.existsSync(resolvedPath)) {
             throw new Error(`File not found: ${filePath}`);
@@ -69,14 +70,14 @@ class PDFService {
         const stats = fs.statSync(resolvedPath);
         const originalFilename = path.basename(resolvedPath);
 
-        // Check file hash for duplicate
+        // Check file hash for duplicate within user's library
         const fileHash = calculateFileHash(resolvedPath);
-        const existing = findDuplicateByHash(fileHash);
+        const existing = findDuplicateByHash(fileHash, userId);
         if (existing) {
-            // Set active to existing duplicate
-            this.state.enabled = true;
-            this.state.activeDocumentId = existing.id;
-            saveState(this.state);
+            const state = loadState(userId);
+            state.enabled = true;
+            state.activeDocumentId = existing.id;
+            saveState(state, userId);
             return {
                 duplicate: true,
                 metadata: existing,
@@ -107,17 +108,18 @@ class PDFService {
             fileHash,
         };
 
-        // Persist metadata, document, and index
+        // Persist metadata, document, and index for this user
         saveDocument({
             metadata,
             pages: extraction.pages,
             chunks,
-        });
+        }, userId);
 
-        // Automatically enable PDF mode and set active document
-        this.state.enabled = true;
-        this.state.activeDocumentId = docId;
-        saveState(this.state);
+        // Automatically enable PDF mode and set active document for user
+        const state = loadState(userId);
+        state.enabled = true;
+        state.activeDocumentId = docId;
+        saveState(state, userId);
 
         return {
             success: true,
@@ -126,35 +128,35 @@ class PDFService {
         };
     }
 
-    listPDFs() {
-        this.state = loadState();
-        const docs = getAllMetadata();
+    listPDFs(userId) {
+        const state = loadState(userId);
+        const docs = getAllMetadata(userId);
         return {
-            enabled: this.state.enabled,
-            activeDocumentId: this.state.activeDocumentId,
+            enabled: state.enabled,
+            activeDocumentId: state.activeDocumentId,
             documents: docs.map((doc) => ({
                 ...doc,
                 isActive:
-                    this.state.enabled &&
-                    (this.state.activeDocumentId === "all" || this.state.activeDocumentId === doc.id),
+                    state.enabled &&
+                    (state.activeDocumentId === "all" || state.activeDocumentId === doc.id),
             })),
         };
     }
 
-    getPDFInfo(identifier) {
-        const meta = getMetadata(identifier);
+    getPDFInfo(identifier, userId) {
+        const meta = getMetadata(identifier, userId);
         if (!meta) {
             throw new Error(`PDF document not found: '${identifier}'`);
         }
         return meta;
     }
 
-    usePDF(identifier) {
-        this.state = loadState();
+    usePDF(identifier, userId) {
+        const state = loadState(userId);
         if (!identifier || identifier.toLowerCase() === "all") {
-            this.state.enabled = true;
-            this.state.activeDocumentId = "all";
-            saveState(this.state);
+            state.enabled = true;
+            state.activeDocumentId = "all";
+            saveState(state, userId);
             return {
                 success: true,
                 activeDocumentId: "all",
@@ -162,14 +164,14 @@ class PDFService {
             };
         }
 
-        const meta = getMetadata(identifier);
+        const meta = getMetadata(identifier, userId);
         if (!meta) {
             throw new Error(`PDF document not found: '${identifier}'`);
         }
 
-        this.state.enabled = true;
-        this.state.activeDocumentId = meta.id;
-        saveState(this.state);
+        state.enabled = true;
+        state.activeDocumentId = meta.id;
+        saveState(state, userId);
 
         return {
             success: true,
@@ -178,28 +180,28 @@ class PDFService {
         };
     }
 
-    searchPDF(query, topK = 5) {
-        this.state = loadState();
-        const activeId = this.state.activeDocumentId || "all";
-        return searchChunks(query, activeId, topK);
+    searchPDF(query, topK = 5, userId = null) {
+        const state = loadState(userId);
+        const activeId = state.activeDocumentId || "all";
+        return searchChunks(query, activeId, topK, userId);
     }
 
-    removePDF(identifier) {
-        const meta = getMetadata(identifier);
+    removePDF(identifier, userId) {
+        const meta = getMetadata(identifier, userId);
         if (!meta) {
             throw new Error(`PDF document not found: '${identifier}'`);
         }
 
-        const removed = removeDocument(meta.id);
+        const removed = removeDocument(meta.id, userId);
         if (removed) {
-            this.state = loadState();
-            if (this.state.activeDocumentId === meta.id) {
-                const remaining = getAllMetadata();
-                this.state.activeDocumentId = remaining.length > 0 ? "all" : "all";
+            const state = loadState(userId);
+            if (state.activeDocumentId === meta.id) {
+                const remaining = getAllMetadata(userId);
+                state.activeDocumentId = "all";
                 if (remaining.length === 0) {
-                    this.state.enabled = false;
+                    state.enabled = false;
                 }
-                saveState(this.state);
+                saveState(state, userId);
             }
         }
         return {
@@ -208,30 +210,30 @@ class PDFService {
         };
     }
 
-    clearPDFs() {
-        clearAllDocuments();
-        this.state = { enabled: false, activeDocumentId: "all" };
-        saveState(this.state);
+    clearPDFs(userId) {
+        clearAllDocuments(userId);
+        const state = { enabled: false, activeDocumentId: "all" };
+        saveState(state, userId);
         return {
             success: true,
             message: "PDF Knowledge Base cleared successfully",
         };
     }
 
-    turnOffPDF() {
-        this.state = loadState();
-        this.state.enabled = false;
-        saveState(this.state);
+    turnOffPDF(userId) {
+        const state = loadState(userId);
+        state.enabled = false;
+        saveState(state, userId);
         return {
             success: true,
             enabled: false,
         };
     }
 
-    buildContext(question, topK = 4, targetDoc = null) {
-        this.state = loadState();
+    buildContext(question, topK = 4, targetDoc = null, userId = null) {
+        const state = loadState(userId);
 
-        let activeId = this.state.activeDocumentId || "all";
+        let activeId = state.activeDocumentId || "all";
 
         // If a specific document or file list was attached to the request, resolve it
         if (targetDoc) {
@@ -239,7 +241,7 @@ class PDFService {
                 const resolvedIds = targetDoc
                     .map((d) => {
                         const ident = typeof d === "object" ? d.id || d.name || d.originalFilename : d;
-                        const meta = getMetadata(ident);
+                        const meta = getMetadata(ident, userId);
                         return meta ? meta.id : ident;
                     })
                     .filter(Boolean);
@@ -249,14 +251,14 @@ class PDFService {
                 }
             } else if (typeof targetDoc === "string" || typeof targetDoc === "object") {
                 const ident = typeof targetDoc === "object" ? targetDoc.id || targetDoc.name || targetDoc.originalFilename : targetDoc;
-                const meta = getMetadata(ident);
+                const meta = getMetadata(ident, userId);
                 if (meta) {
                     activeId = meta.id;
                 } else if (ident) {
                     activeId = ident;
                 }
             }
-        } else if (!this.state.enabled) {
+        } else if (!state.enabled) {
             return {
                 hasContext: false,
                 contextText: "",
@@ -265,7 +267,7 @@ class PDFService {
             };
         }
 
-        const chunks = searchChunks(question, activeId, topK);
+        const chunks = searchChunks(question, activeId, topK, userId);
 
         if (!chunks || chunks.length === 0) {
             return {

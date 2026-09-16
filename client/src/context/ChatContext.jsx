@@ -1,9 +1,12 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { chatService } from '../services/chatService';
+import { useAuth } from './AuthContext';
 
 const ChatContext = createContext(null);
 
 export function ChatProvider({ children }) {
+  const { user, isAuthenticated } = useAuth();
+
   const [sessions, setSessions] = useState([]);
   const [activeSessionId, setActiveSessionId] = useState('default');
   const [messages, setMessages] = useState([]);
@@ -18,45 +21,6 @@ export function ChatProvider({ children }) {
   const [thinkingLevels, setThinkingLevels] = useState({});
   const [currentThinking, setCurrentThinking] = useState('medium');
   const [serverConnected, setServerConnected] = useState(true);
-
-  // Load initial data
-  const initialize = useCallback(async () => {
-    try {
-      const [settings, providersData, levels] = await Promise.all([
-        chatService.getSettings().catch(() => null),
-        chatService.getProvidersFull().catch(() => ({ providers: [] })),
-        chatService.getThinkingLevels().catch(() => ({})),
-      ]);
-
-      const provList = providersData?.providers || [];
-      setProviders(provList);
-      setThinkingLevels(levels);
-
-      const resolvedProvider = settings?.provider || providersData?.defaultProvider || 'gemini';
-      const resolvedModel = settings?.model || providersData?.defaultModel || 'gemini-2.0-flash';
-      const resolvedThinking = settings?.thinkingLevel || 'medium';
-
-      setCurrentProvider(resolvedProvider);
-      setCurrentModel(resolvedModel);
-      setCurrentThinking(resolvedThinking);
-      setServerConnected(true);
-
-      // Load models for resolved provider
-      const foundProv = provList.find(p => (typeof p === 'object' ? p.id : p) === resolvedProvider);
-      if (foundProv && typeof foundProv === 'object' && Array.isArray(foundProv.models) && foundProv.models.length > 0) {
-        setModels(foundProv.models);
-      } else {
-        chatService.getModels(resolvedProvider).then(setModels).catch(() => setModels([]));
-      }
-
-      await loadSessions();
-      await switchSession('default', resolvedProvider, resolvedModel);
-    } catch (err) {
-      console.error('Init error:', err);
-      setServerConnected(false);
-      setError('Unable to connect to backend server.');
-    }
-  }, []);
 
   const loadSessions = useCallback(async () => {
     try {
@@ -108,6 +72,57 @@ export function ChatProvider({ children }) {
       }
     }
   }, [currentProvider, currentModel, currentThinking]);
+
+  // Load initial data
+  const initialize = useCallback(async () => {
+    if (!isAuthenticated) return;
+    try {
+      const [settings, providersData, levels] = await Promise.all([
+        chatService.getSettings().catch(() => null),
+        chatService.getProvidersFull().catch(() => ({ providers: [] })),
+        chatService.getThinkingLevels().catch(() => ({})),
+      ]);
+
+      const provList = providersData?.providers || [];
+      setProviders(provList);
+      setThinkingLevels(levels);
+
+      const resolvedProvider = settings?.provider || providersData?.defaultProvider || 'gemini';
+      const resolvedModel = settings?.model || providersData?.defaultModel || 'gemini-2.0-flash';
+      const resolvedThinking = settings?.thinkingLevel || 'medium';
+
+      setCurrentProvider(resolvedProvider);
+      setCurrentModel(resolvedModel);
+      setCurrentThinking(resolvedThinking);
+      setServerConnected(true);
+
+      // Load models for resolved provider
+      const foundProv = provList.find(p => (typeof p === 'object' ? p.id : p) === resolvedProvider);
+      if (foundProv && typeof foundProv === 'object' && Array.isArray(foundProv.models) && foundProv.models.length > 0) {
+        setModels(foundProv.models);
+      } else {
+        chatService.getModels(resolvedProvider).then(setModels).catch(() => setModels([]));
+      }
+
+      await loadSessions();
+      await switchSession('default', resolvedProvider, resolvedModel);
+    } catch (err) {
+      console.error('Init error:', err);
+      setServerConnected(false);
+      setError('Unable to connect to backend server.');
+    }
+  }, [isAuthenticated, loadSessions, switchSession]);
+
+  // Re-initialize when auth changes
+  useEffect(() => {
+    if (isAuthenticated) {
+      initialize();
+    } else {
+      setSessions([]);
+      setMessages([]);
+      setActiveSessionId('default');
+    }
+  }, [isAuthenticated, user?.id]);
 
   const createSession = useCallback(async (name) => {
     await chatService.createSession(name, {
@@ -266,7 +281,6 @@ export function ChatProvider({ children }) {
     const msgIndex = messages.findIndex(m => m.id === messageId);
     if (msgIndex < 0) return;
 
-    // Find the user message before this AI message
     let userQuestion = '';
     let userOpts = {};
     for (let i = msgIndex - 1; i >= 0; i--) {
@@ -278,7 +292,6 @@ export function ChatProvider({ children }) {
     }
     if (!userQuestion) return;
 
-    // Remove the old AI message
     setMessages(prev => prev.filter(m => m.id !== messageId));
     await sendMessage(userQuestion, userOpts);
   }, [messages, sendMessage]);

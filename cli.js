@@ -4,6 +4,9 @@ const chalk = require("chalk");
 const ora = require("ora");
 const readline = require("readline");
 
+// Ensure CLI requests authenticate as local CLI user seamlessly
+axios.defaults.headers.common["x-cli-agent"] = "true";
+
 const {
   aiConfig,
   supportedProviders,

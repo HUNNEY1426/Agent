@@ -1,8 +1,9 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: '',
+  baseURL: import.meta.env.VITE_API_URL || '',
   timeout: 120000,
+  withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -23,15 +24,17 @@ api.interceptors.response.use(
       const status = error.response.status;
       const data = error.response.data;
 
-      if (status === 401) {
-        localStorage.removeItem('auth_token');
-        localStorage.removeItem('auth_user');
-        window.location.href = '/login';
-        return Promise.reject(new Error('Session expired. Please log in again.'));
-      }
+      // Extract clear message from standardized API error format
+      const message =
+        (typeof data?.error === 'object' ? data?.error?.message : data?.error) ||
+        data?.reason ||
+        data?.message ||
+        `Request failed with status ${status}`;
 
-      const message = data?.error || data?.message || `Request failed (${status})`;
-      return Promise.reject(new Error(message));
+      const customError = new Error(message);
+      customError.status = status;
+      customError.response = error.response;
+      return Promise.reject(customError);
     }
 
     if (error.code === 'ECONNABORTED') {

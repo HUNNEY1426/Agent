@@ -1,7 +1,5 @@
 const express = require("express");
 const router = express.Router();
-
-const fs = require("fs");
 const path = require("path");
 
 const { askAI } = require("../services/aiService");
@@ -9,7 +7,9 @@ const providerManager = require("../services/providerManager");
 const { thinkingLevels } = require("../services/thinkingConfig");
 const { createSafeErrorResponse } = require("../services/errorSanitizer");
 const { aiConfig } = require("../config/aiConfig");
+const { authMiddleware } = require("../middleware/authMiddleware");
 const {
+    getUserSessionDir,
     deleteSession,
     renameSession,
     clearSession,
@@ -23,38 +23,54 @@ const {
     updateSessionSettings,
     getSessionSettings,
     getSessionObject,
-    readActiveSession
+    readActiveSession,
+    listUserSessions,
+    createNewSession,
+    switchUserSession
 } = require("../services/sessionService");
 
-const MEMORY_DIR = path.join(__dirname, "../memory");
-const SESSION_DIR = path.join(MEMORY_DIR, "sessions");
-const ACTIVE_FILE = path.join(MEMORY_DIR, "active_session.txt");
+// Protect all AI routes with authMiddleware
+router.use(authMiddleware);
 
 router.post("/ask", async (req, res) => {
     const { question, provider, model, thinkingLevel, pdfName, pdfId, files, pdf } = req.body;
+    const userId = req.user?.id;
+    const isAuthenticated = Boolean(req.user);
+    const userIdPresent = Boolean(userId);
 
     if (!question || !question.trim()) {
         return res.status(400).json({
-            error: "Question is required"
+            success: false,
+            error: {
+                code: "VALIDATION_ERROR",
+                message: "Question is required"
+            }
         });
     }
 
     const selectedProvider = provider || providerManager.runtimeSettings.provider || aiConfig.provider || "gemini";
+    const selectedModel = model || (provider && provider !== providerManager.runtimeSettings.provider ? undefined : providerManager.runtimeSettings.model) || aiConfig.model || "gemini-2.0-flash";
+
+    console.log(`[AI DEBUG]\nprovider=${selectedProvider}\nmodel=${selectedModel}\nauthenticated=${isAuthenticated}\nuserIdPresent=${userIdPresent}\nquestionLength=${question.length}\nproviderStarted=true`);
 
     try {
         const result = await askAI(question, {
             provider: selectedProvider,
-            model,
+            model: selectedModel,
             thinkingLevel,
             pdfName,
             pdfId,
             files,
             pdf,
+            userId
         });
+
+        console.log(`[AI DEBUG]\nproviderSuccess=true`);
 
         const answer = typeof result === "string" ? result : result.answer;
 
         res.json({
+            success: true,
             answer,
             provider: result.provider,
             model: result.model,
@@ -67,6 +83,7 @@ router.post("/ask", async (req, res) => {
         });
 
     } catch (error) {
+        console.log(`[AI DEBUG]\nproviderSuccess=false`);
         console.error("AI Route Error:", error.message || error);
 
         const safeError = createSafeErrorResponse(
@@ -75,16 +92,26 @@ router.post("/ask", async (req, res) => {
             error.attemptedErrors || []
         );
 
-        res.status(500).json(safeError);
+        res.status(500).json({
+            success: false,
+            error: {
+                code: "AI_PROVIDER_ERROR",
+                message: safeError.reason || `${safeError.providerDisplay || "AI"} provider request failed`,
+                details: safeError.error
+            },
+            ...safeError
+        });
     }
 });
 
 // Get Current AI Settings
 router.get("/settings", (req, res) => {
     try {
-        const active = readActiveSession();
-        const sessionFile = path.join(SESSION_DIR, `${active.active}.json`);
-        const session = getSessionObject(active.active, sessionFile);
+        const userId = req.user.id;
+        const active = readActiveSession(userId);
+        const sessionDir = getUserSessionDir(userId);
+        const sessionFile = path.join(sessionDir, `${active.active}.json`);
+        const session = getSessionObject(active.active, sessionFile, userId);
 
         const activeProvider = session.provider || providerManager.runtimeSettings.provider || aiConfig.provider || "gemini";
         const activeModel = session.model || providerManager.runtimeSettings.model || aiConfig.model || "gemini-2.0-flash";
@@ -105,9 +132,10 @@ router.get("/settings", (req, res) => {
 // Update AI Settings
 router.post("/settings", async (req, res) => {
     const { provider, model, thinkingLevel } = req.body;
+    const userId = req.user.id;
 
     try {
-        const active = readActiveSession();
+        const active = readActiveSession(userId);
 
         if (provider) {
             providerManager.setProvider(provider);
@@ -121,9 +149,9 @@ router.post("/settings", async (req, res) => {
 
         const current = providerManager.getCurrentSettings();
 
-        // Update active session file
+        // Update active session file for user
         try {
-            await updateSessionSettings(active.active, current);
+            await updateSessionSettings(active.active, current, userId);
         } catch (e) {
             // Ignore if active session file not ready
         }
@@ -135,6 +163,7 @@ router.post("/settings", async (req, res) => {
         });
     } catch (error) {
         res.status(400).json({
+            success: false,
             error: error.message
         });
     }
@@ -161,6 +190,7 @@ function handleModelsList(req, res) {
         });
     } catch (error) {
         res.status(400).json({
+            success: false,
             error: error.message
         });
     }
@@ -177,197 +207,55 @@ router.get("/thinking-levels", (req, res) => {
 });
 
 // Create New Chat Session
-router.post("/chat/new", (req, res) => {
+router.post("/chat/new", async (req, res) => {
     const { name, provider, model, thinkingLevel } = req.body;
+    const userId = req.user.id;
 
-    if (!fs.existsSync(SESSION_DIR)) {
-        fs.mkdirSync(SESSION_DIR, { recursive: true });
+    try {
+        const result = await createNewSession(name, { provider, model, thinkingLevel }, userId);
+        res.json(result);
+    } catch (err) {
+        res.status(400).json({ success: false, error: err.message });
     }
-
-    const sessionFile = path.join(SESSION_DIR, `${name}.json`);
-
-    const currentSettings = providerManager.getCurrentSettings();
-    const sessionProvider = provider || currentSettings.provider || aiConfig.provider || "gemini";
-    const sessionModel = model || currentSettings.model || aiConfig.model || "gemini-2.0-flash";
-    const sessionThinking = thinkingLevel || currentSettings.thinkingLevel || "medium";
-
-    if (!fs.existsSync(sessionFile)) {
-        const now = new Date().toISOString();
-        const initialSession = {
-            id: name,
-            title: name.charAt(0).toUpperCase() + name.slice(1) + " Help",
-            provider: sessionProvider,
-            model: sessionModel,
-            thinkingLevel: sessionThinking,
-            createdAt: now,
-            updatedAt: now,
-            messages: []
-        };
-        fs.writeFileSync(sessionFile, JSON.stringify(initialSession, null, 2));
-    }
-
-    fs.writeFileSync(ACTIVE_FILE, name);
-    fs.writeFileSync(
-        path.join(MEMORY_DIR, "active_session.json"),
-        JSON.stringify({ active: name, lastOpened: new Date().toISOString() }, null, 2)
-    );
-
-    res.json({
-        success: true,
-        message: `Session '${name}' created`,
-        settings: {
-            provider: sessionProvider,
-            model: sessionModel,
-            thinkingLevel: sessionThinking
-        }
-    });
 });
 
 // Switch Active Session
-router.post("/chat/switch", (req, res) => {
+router.post("/chat/switch", async (req, res) => {
     const { name } = req.body;
-
-    const sessionFile = path.join(SESSION_DIR, `${name}.json`);
-
-    if (!fs.existsSync(sessionFile)) {
-        return res.status(404).json({
-            message: "Session not found"
-        });
-    }
-
-    fs.writeFileSync(ACTIVE_FILE, name);
-    fs.writeFileSync(
-        path.join(MEMORY_DIR, "active_session.json"),
-        JSON.stringify({ active: name, lastOpened: new Date().toISOString() }, null, 2)
-    );
-
-    let history = [];
-    let sessionSettings = providerManager.getCurrentSettings();
+    const userId = req.user.id;
 
     try {
-        const content = fs.readFileSync(sessionFile, "utf8").trim();
-        if (content) {
-            const parsed = JSON.parse(content);
-            if (Array.isArray(parsed)) {
-                history = parsed.map(msg => ({
-                    role: msg.role,
-                    text: msg.text || msg.content || "",
-                    content: msg.content || msg.text || ""
-                }));
-            } else if (parsed && typeof parsed === "object") {
-                const prov = parsed.provider || aiConfig.provider || "gemini";
-                const mod = parsed.model || aiConfig.model || "gemini-2.0-flash";
-                const think = parsed.thinkingLevel || aiConfig.thinkingLevel || "medium";
-
-                providerManager.setProvider(prov);
-                providerManager.setModel(mod, prov);
-                providerManager.setThinkingLevel(think);
-
-                sessionSettings = {
-                    provider: prov,
-                    model: mod,
-                    thinkingLevel: think,
-                };
-
-                if (Array.isArray(parsed.messages)) {
-                    history = parsed.messages.map(msg => ({
-                        role: msg.role,
-                        text: msg.text || msg.content || "",
-                        content: msg.content || msg.text || ""
-                    }));
-                }
-            }
-        }
-    } catch (e) {
-        history = [];
+        const result = await switchUserSession(name, userId);
+        res.json(result);
+    } catch (err) {
+        res.status(404).json({ success: false, message: err.message });
     }
-
-    res.json({
-        message: `Switched to ${name}`,
-        history,
-        settings: sessionSettings
-    });
 });
 
-// List All Sessions
+// List All Sessions for user
 router.get("/chat/list", (req, res) => {
-    if (!fs.existsSync(SESSION_DIR)) {
-        return res.json([]);
+    try {
+        const userId = req.user.id;
+        const sessionsList = listUserSessions(userId);
+        res.json(sessionsList);
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
     }
-
-    const files = fs.readdirSync(SESSION_DIR).filter(file => file.endsWith(".json"));
-
-    const sessionsList = files.map(file => {
-        const name = file.replace(".json", "");
-        const filePath = path.join(SESSION_DIR, file);
-        try {
-            const content = fs.readFileSync(filePath, "utf8").trim();
-            if (!content) {
-                const stats = fs.statSync(filePath);
-                const updatedTime = stats.mtime.toISOString();
-                return {
-                    id: name,
-                    title: name.charAt(0).toUpperCase() + name.slice(1) + " Help",
-                    messageCount: 0,
-                    messagesCount: 0,
-                    updatedAt: updatedTime,
-                    updatedDate: updatedTime
-                };
-            }
-            const parsed = JSON.parse(content);
-            if (Array.isArray(parsed)) {
-                const stats = fs.statSync(filePath);
-                const updatedTime = stats.mtime.toISOString();
-                return {
-                    id: name,
-                    title: name.charAt(0).toUpperCase() + name.slice(1) + " Help",
-                    messageCount: parsed.length,
-                    messagesCount: parsed.length,
-                    updatedAt: updatedTime,
-                    updatedDate: updatedTime
-                };
-            } else if (parsed && typeof parsed === "object") {
-                const msgCount = Array.isArray(parsed.messages) ? parsed.messages.length : 0;
-                const updatedTime = parsed.updatedAt || parsed.createdAt || new Date().toISOString();
-                return {
-                    id: parsed.id || name,
-                    title: parsed.title || (name.charAt(0).toUpperCase() + name.slice(1) + " Help"),
-                    provider: parsed.provider,
-                    model: parsed.model,
-                    thinkingLevel: parsed.thinkingLevel,
-                    messageCount: msgCount,
-                    messagesCount: msgCount,
-                    updatedAt: updatedTime,
-                    updatedDate: updatedTime
-                };
-            }
-        } catch (e) {
-            // Fallback
-        }
-        return {
-            id: name,
-            title: name.charAt(0).toUpperCase() + name.slice(1) + " Help",
-            messageCount: 0,
-            messagesCount: 0,
-            updatedAt: new Date().toISOString(),
-            updatedDate: new Date().toISOString()
-        };
-    });
-
-    res.json(sessionsList);
 });
 
 // Delete Chat Session
 router.delete("/chat/delete/:name", async (req, res) => {
     const { name } = req.params;
+    const userId = req.user.id;
     try {
-        await deleteSession(name);
+        await deleteSession(name, userId);
         res.json({
             success: true,
             message: `Session '${name}' deleted`
         });
     } catch (err) {
         res.status(err.message === "Session not found" ? 404 : 400).json({
+            success: false,
             error: err.message
         });
     }
@@ -376,14 +264,16 @@ router.delete("/chat/delete/:name", async (req, res) => {
 // Rename Chat Session
 router.post("/chat/rename", async (req, res) => {
     const { oldName, newName } = req.body;
+    const userId = req.user.id;
     try {
-        await renameSession(oldName, newName);
+        await renameSession(oldName, newName, userId);
         res.json({
             success: true,
             message: `Session '${oldName}' renamed to '${newName}'`
         });
     } catch (err) {
         res.status(err.message === "Session not found" ? 404 : err.message === "Session already exists" ? 409 : 400).json({
+            success: false,
             error: err.message
         });
     }
@@ -392,14 +282,16 @@ router.post("/chat/rename", async (req, res) => {
 // Clear Chat Session
 router.post("/chat/clear", async (req, res) => {
     const { name } = req.body;
+    const userId = req.user.id;
     try {
-        await clearSession(name);
+        await clearSession(name, userId);
         res.json({
             success: true,
             message: `Session '${name}' cleared`
         });
     } catch (err) {
         res.status(err.message === "Session not found" ? 404 : 400).json({
+            success: false,
             error: err.message
         });
     }
@@ -408,14 +300,16 @@ router.post("/chat/clear", async (req, res) => {
 // Duplicate Chat Session
 router.post("/chat/duplicate", async (req, res) => {
     const { source, target } = req.body;
+    const userId = req.user.id;
     try {
-        await duplicateSession(source, target);
+        await duplicateSession(source, target, userId);
         res.json({
             success: true,
             message: `Session '${source}' duplicated to '${target}'`
         });
     } catch (err) {
         res.status(err.message === "Session not found" ? 404 : err.message === "Session already exists" ? 409 : 400).json({
+            success: false,
             error: err.message
         });
     }
@@ -424,11 +318,13 @@ router.post("/chat/duplicate", async (req, res) => {
 // Get Chat Session Info
 router.get("/chat/info/:name", async (req, res) => {
     const { name } = req.params;
+    const userId = req.user.id;
     try {
-        const info = await getSessionInfo(name);
+        const info = await getSessionInfo(name, userId);
         res.json(info);
     } catch (err) {
         res.status(err.message === "Session not found" ? 404 : 400).json({
+            success: false,
             error: err.message
         });
     }
@@ -437,19 +333,21 @@ router.get("/chat/info/:name", async (req, res) => {
 // Search Chat Messages
 router.get("/chat/search/:query", async (req, res) => {
     const { query } = req.params;
+    const userId = req.user.id;
     try {
-        const results = await searchMessages(query);
+        const results = await searchMessages(query, userId);
         res.json(results);
     } catch (err) {
-        res.status(400).json({ error: err.message });
+        res.status(400).json({ success: false, error: err.message });
     }
 });
 
 // Export Chat Session
 router.post("/chat/export", async (req, res) => {
     const { id, format } = req.body;
+    const userId = req.user.id;
     try {
-        const result = await exportSession(id, format);
+        const result = await exportSession(id, format, userId);
         res.json({
             success: true,
             filePath: result.filePath,
@@ -457,6 +355,7 @@ router.post("/chat/export", async (req, res) => {
         });
     } catch (err) {
         res.status(err.message === "Session not found" ? 404 : 400).json({
+            success: false,
             error: err.message
         });
     }
@@ -465,14 +364,16 @@ router.post("/chat/export", async (req, res) => {
 // Import Chat Session
 router.post("/chat/import", async (req, res) => {
     const { session } = req.body;
+    const userId = req.user.id;
     try {
-        const imported = await importSession(session);
+        const imported = await importSession(session, userId);
         res.json({
             success: true,
             session: imported
         });
     } catch (err) {
         res.status(err.message === "Session ID already exists" ? 409 : 400).json({
+            success: false,
             error: err.message
         });
     }
@@ -481,14 +382,16 @@ router.post("/chat/import", async (req, res) => {
 // Archive Chat Session
 router.post("/chat/archive", async (req, res) => {
     const id = req.body.id || req.body.name;
+    const userId = req.user.id;
     try {
-        await archiveSession(id);
+        await archiveSession(id, userId);
         res.json({
             success: true,
             message: `Session '${id}' archived successfully`
         });
     } catch (err) {
         res.status(err.message === "Session not found" ? 404 : err.message === "Session already archived" ? 409 : 400).json({
+            success: false,
             error: err.message
         });
     }
@@ -497,14 +400,16 @@ router.post("/chat/archive", async (req, res) => {
 // Restore Chat Session
 router.post("/chat/restore", async (req, res) => {
     const id = req.body.id || req.body.name;
+    const userId = req.user.id;
     try {
-        await restoreSession(id);
+        await restoreSession(id, userId);
         res.json({
             success: true,
             message: `Session '${id}' restored successfully`
         });
     } catch (err) {
         res.status(err.message === "Session not found in archives" ? 404 : err.message === "Session already exists in active sessions" ? 409 : 400).json({
+            success: false,
             error: err.message
         });
     }

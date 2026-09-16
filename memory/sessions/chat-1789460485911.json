@@ -1,0 +1,10 @@
+{
+  "id": "chat-1789460485911",
+  "title": "Chat-1789460485911 Help",
+  "provider": "openrouter",
+  "model": "meta-llama/llama-3.3-70b-instruct",
+  "thinkingLevel": "medium",
+  "createdAt": "2026-09-15T08:21:25.922Z",
+  "updatedAt": "2026-09-15T08:21:57.321Z",
+  "messages": []
+}

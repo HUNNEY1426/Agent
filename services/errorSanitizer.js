@@ -51,6 +51,8 @@ function getFriendlyProviderError(providerName, rawError) {
     lower.includes("incorrect api key") ||
     lower.includes("invalid authentication") ||
     lower.includes("invalid_api_key") ||
+    lower.includes("api_key_invalid") ||
+    lower.includes("api key not valid") ||
     lower.includes("user not found")
   ) {
     reason = "API authentication failed. Please check the server configuration.";
@@ -70,7 +72,7 @@ function getFriendlyProviderError(providerName, rawError) {
     reason = `${providerDisplay} rate limit exceeded or quota exhausted.`;
   } else if (
     lower.includes("econnrefused") ||
-    lower.includes("connect") ||
+    lower.includes("connect to ollama") ||
     lower.includes("offline") ||
     lower.includes("11434")
   ) {
@@ -104,7 +106,8 @@ function getFriendlyProviderError(providerName, rawError) {
  * Builds a safe error response payload for express routes.
  */
 function createSafeErrorResponse(primaryProvider, error, attemptedErrors = []) {
-  const primaryFriendly = getFriendlyProviderError(primaryProvider, error);
+  const specificError = (attemptedErrors || []).find((a) => a.provider === primaryProvider)?.error || error;
+  const primaryFriendly = getFriendlyProviderError(primaryProvider, specificError);
 
   const cleanErrors = (attemptedErrors || []).map((item) =>
     getFriendlyProviderError(item.provider, item.error)

@@ -3,45 +3,28 @@
 /**
  * historyIndexer.js
  * Builds and maintains a lightweight in-memory inverted index
- * over all saved session files in memory/sessions/.
- * Uses TF-IDF style scoring for BM25-like retrieval without
- * any external vector database or npm package.
+ * over user-specific session files in memory/users/<userId>/sessions/.
  */
 
 const fs   = require("fs");
 const path = require("path");
+const { getUserSessionDir } = require("../sessionService");
 
-const SESSION_DIR = path.join(__dirname, "../../memory/sessions");
+// Per-user index storage
+// userId -> { corpus: [], invertedIndex: {}, fileModTimes: {} }
+const userIndices = {};
 
-// ──────────────────────────────────────────────────────────────
-// Internal index data structures
-// ──────────────────────────────────────────────────────────────
-
-/**
- * Each entry in the flat message corpus:
- * {
- *   sessionId   : string,
- *   sessionTitle: string,
- *   role        : "user" | "assistant",
- *   content     : string,
- *   msgIndex    : number   (0-based position inside session.messages)
- *   tokens      : string[] (normalised word tokens)
- * }
- */
-let corpus = [];
-
-/**
- * Inverted index  →  term → [ corpusIdx, ... ]
- * Allows O(k) lookup where k = number of docs containing the term.
- */
-let invertedIndex = {};
-
-/** Track last-modified time per session file to enable incremental refresh */
-const fileModTimes = {};
-
-// ──────────────────────────────────────────────────────────────
-// Tokenisation helpers
-// ──────────────────────────────────────────────────────────────
+function getUserIndexState(userId = "default_user") {
+    const cleanId = (userId || "default_user").replace(/[^a-zA-Z0-9_-]/g, "_");
+    if (!userIndices[cleanId]) {
+        userIndices[cleanId] = {
+            corpus: [],
+            invertedIndex: {},
+            fileModTimes: {}
+        };
+    }
+    return userIndices[cleanId];
+}
 
 const STOP_WORDS = new Set([
     "a","an","the","is","it","in","on","at","to","for","of","and",
@@ -56,10 +39,6 @@ const STOP_WORDS = new Set([
     "know","want","give","see","say","said","go","come","take"
 ]);
 
-/**
- * Tokenise a string: lowercase, strip punctuation, remove stop-words, dedup.
- * Returns an array of meaningful tokens (may contain duplicates for TF).
- */
 function tokenise(text) {
     if (!text || typeof text !== "string") return [];
     return text
@@ -69,20 +48,11 @@ function tokenise(text) {
         .filter(t => t.length > 1 && !STOP_WORDS.has(t));
 }
 
-// ──────────────────────────────────────────────────────────────
-// Index building
-// ──────────────────────────────────────────────────────────────
-
-/**
- * Load a single session JSON file safely.
- * Returns null on error.
- */
 function loadSessionFile(filePath) {
     try {
         const raw = fs.readFileSync(filePath, "utf8").trim();
         if (!raw) return null;
         const parsed = JSON.parse(raw);
-        // Support both { messages: [] } and legacy raw-array formats
         if (Array.isArray(parsed)) {
             const name = path.basename(filePath, ".json");
             return { id: name, title: name, messages: parsed };
@@ -94,36 +64,28 @@ function loadSessionFile(filePath) {
     }
 }
 
-/**
- * (Re)build the entire index by scanning all session files.
- * Safe to call multiple times; resets and rebuilds from scratch.
- */
-function buildIndex() {
-    corpus       = [];
-    invertedIndex = {};
+function buildIndex(userId = "default_user") {
+    const state = getUserIndexState(userId);
+    state.corpus = [];
+    state.invertedIndex = {};
 
-    if (!fs.existsSync(SESSION_DIR)) return;
+    const sessionDir = getUserSessionDir(userId);
+    if (!fs.existsSync(sessionDir)) return;
 
-    const files = fs.readdirSync(SESSION_DIR)
+    const files = fs.readdirSync(sessionDir)
         .filter(f => f.endsWith(".json"))
-        .map(f => path.join(SESSION_DIR, f));
+        .map(f => path.join(sessionDir, f));
 
     for (const filePath of files) {
-        _indexFile(filePath);
+        _indexFile(filePath, userId);
     }
 }
 
-/**
- * Index (or re-index) a single file.
- * Removes old entries for that file first so they are not duplicated.
- * @param {string} filePath
- */
-function _indexFile(filePath) {
+function _indexFile(filePath, userId = "default_user") {
+    const state = getUserIndexState(userId);
     const sessionId = path.basename(filePath, ".json");
 
-    // Remove any existing corpus entries for this session
-    const kept = corpus.filter(e => e.sessionId !== sessionId);
-    corpus = kept;
+    state.corpus = state.corpus.filter(e => e.sessionId !== sessionId);
 
     const session = loadSessionFile(filePath);
     if (!session) return;
@@ -143,94 +105,73 @@ function _indexFile(filePath) {
             msgIndex,
             tokens
         };
-        corpus.push(entry);
+        state.corpus.push(entry);
     });
 
-    // Record modification time
     try {
-        fileModTimes[filePath] = fs.statSync(filePath).mtimeMs;
+        state.fileModTimes[filePath] = fs.statSync(filePath).mtimeMs;
     } catch { /* ignore */ }
 
-    // Rebuild inverted index for new corpus
-    _rebuildInvertedIndex();
+    _rebuildInvertedIndex(userId);
 }
 
-function _rebuildInvertedIndex() {
-    invertedIndex = {};
-    corpus.forEach((entry, idx) => {
+function _rebuildInvertedIndex(userId = "default_user") {
+    const state = getUserIndexState(userId);
+    state.invertedIndex = {};
+    state.corpus.forEach((entry, idx) => {
         const seen = new Set();
         for (const token of entry.tokens) {
             if (seen.has(token)) continue;
             seen.add(token);
-            if (!invertedIndex[token]) invertedIndex[token] = [];
-            invertedIndex[token].push(idx);
+            if (!state.invertedIndex[token]) state.invertedIndex[token] = [];
+            state.invertedIndex[token].push(idx);
         }
     });
 }
 
-/**
- * Incrementally refresh any session files that have changed on disk
- * since the last index build.  Call this before every search to
- * pick up new messages automatically.
- */
-function refreshChanged() {
-    if (!fs.existsSync(SESSION_DIR)) return;
+function refreshChanged(userId = "default_user") {
+    const sessionDir = getUserSessionDir(userId);
+    if (!fs.existsSync(sessionDir)) return;
 
-    const files = fs.readdirSync(SESSION_DIR)
+    const state = getUserIndexState(userId);
+    const files = fs.readdirSync(sessionDir)
         .filter(f => f.endsWith(".json"))
-        .map(f => path.join(SESSION_DIR, f));
+        .map(f => path.join(sessionDir, f));
 
     let changed = false;
     for (const filePath of files) {
         try {
             const mtime = fs.statSync(filePath).mtimeMs;
-            if ((fileModTimes[filePath] || 0) !== mtime) {
-                _indexFile(filePath);
+            if ((state.fileModTimes[filePath] || 0) !== mtime) {
+                _indexFile(filePath, userId);
                 changed = true;
             }
         } catch { /* ignore */ }
     }
 
-    // If nothing changed but index is empty, do a full build
-    if (!changed && corpus.length === 0) {
-        buildIndex();
+    if (!changed && state.corpus.length === 0 && files.length > 0) {
+        buildIndex(userId);
     }
 }
 
-// ──────────────────────────────────────────────────────────────
-// Public interface
-// ──────────────────────────────────────────────────────────────
-
-/**
- * Return the raw corpus array (read-only).
- * Used by historySearch for scoring.
- */
-function getCorpus() {
-    return corpus;
+function getCorpus(userId = "default_user") {
+    return getUserIndexState(userId).corpus;
 }
 
-/**
- * Return the inverted index (read-only).
- */
-function getInvertedIndex() {
-    return invertedIndex;
+function getInvertedIndex(userId = "default_user") {
+    return getUserIndexState(userId).invertedIndex;
 }
 
-/**
- * Return basic statistics.
- */
-function getStats() {
-    const sessions = new Set(corpus.map(e => e.sessionId));
+function getStats(userId = "default_user") {
+    const state = getUserIndexState(userId);
+    const sessions = new Set(state.corpus.map(e => e.sessionId));
     return {
-        totalMessages : corpus.length,
+        totalMessages : state.corpus.length,
         totalSessions : sessions.size,
-        totalTerms    : Object.keys(invertedIndex).length,
+        totalTerms    : Object.keys(state.invertedIndex).length,
         sessions      : [...sessions]
     };
 }
-
-// Build the index once when this module is first loaded
-buildIndex();
 
 module.exports = {
     buildIndex,
@@ -238,6 +179,5 @@ module.exports = {
     getCorpus,
     getInvertedIndex,
     getStats,
-    tokenise,         // exported so historySearch can reuse it
-    SESSION_DIR
+    tokenise
 };

@@ -4,6 +4,7 @@ const path = require("path");
 const fs = require("fs");
 const multer = require("multer");
 const pdfService = require("../services/pdf/pdfService");
+const { authMiddleware } = require("../middleware/authMiddleware");
 
 // Ensure upload directory exists
 const UPLOAD_DIR = path.join(__dirname, "../uploads");
@@ -11,7 +12,7 @@ if (!fs.existsSync(UPLOAD_DIR)) {
     fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 }
 
-// Multer storage config
+// Multer storage config with sanitized filename
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
         cb(null, UPLOAD_DIR);
@@ -35,18 +36,22 @@ const upload = multer({
     }
 });
 
+// Protect all PDF routes with authMiddleware
+router.use(authMiddleware);
+
 // Multipart PDF file upload and auto-indexing
 router.post("/upload", (req, res) => {
     upload.single("file")(req, res, async (err) => {
         if (err) {
-            return res.status(400).json({ error: err.message || "File upload failed" });
+            return res.status(400).json({ success: false, error: err.message || "File upload failed" });
         }
         if (!req.file) {
-            return res.status(400).json({ error: "No PDF file provided. Please attach a .pdf file." });
+            return res.status(400).json({ success: false, error: "No PDF file provided. Please attach a .pdf file." });
         }
 
         try {
-            const result = await pdfService.addPDF(req.file.path);
+            const userId = req.user.id;
+            const result = await pdfService.addPDF(req.file.path, userId);
             res.json({
                 success: true,
                 duplicate: !!result.duplicate,
@@ -58,7 +63,7 @@ router.post("/upload", (req, res) => {
             });
         } catch (indexingError) {
             console.error("PDF Indexing Error:", indexingError);
-            res.status(400).json({ error: indexingError.message || "Failed to index PDF document" });
+            res.status(400).json({ success: false, error: indexingError.message || "Failed to index PDF document" });
         }
     });
 });
@@ -67,45 +72,49 @@ router.post("/upload", (req, res) => {
 router.post("/add", async (req, res) => {
     const { path: filePath } = req.body;
     if (!filePath || !filePath.trim()) {
-        return res.status(400).json({ error: "PDF file path is required" });
+        return res.status(400).json({ success: false, error: "PDF file path is required" });
     }
 
     try {
-        const result = await pdfService.addPDF(filePath.trim());
+        const userId = req.user.id;
+        const result = await pdfService.addPDF(filePath.trim(), userId);
         res.json(result);
     } catch (err) {
-        res.status(400).json({ error: err.message });
+        res.status(400).json({ success: false, error: err.message });
     }
 });
 
-// List indexed PDFs
+// List indexed PDFs for authenticated user
 router.get("/list", (req, res) => {
     try {
-        const data = pdfService.listPDFs();
+        const userId = req.user.id;
+        const data = pdfService.listPDFs(userId);
         res.json(data);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ success: false, error: err.message });
     }
 });
 
-// Get status of PDF Knowledge Base
+// Get status of PDF Knowledge Base for user
 router.get("/status", (req, res) => {
     try {
-        const status = pdfService.getStatus();
+        const userId = req.user.id;
+        const status = pdfService.getStatus(userId);
         res.json(status);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ success: false, error: err.message });
     }
 });
 
-// Get info for a specific PDF
+// Get info for a specific PDF for user
 router.get("/info/:identifier", (req, res) => {
     const { identifier } = req.params;
     try {
-        const info = pdfService.getPDFInfo(identifier);
+        const userId = req.user.id;
+        const info = pdfService.getPDFInfo(identifier, userId);
         res.json(info);
     } catch (err) {
-        res.status(404).json({ error: err.message });
+        res.status(404).json({ success: false, error: err.message });
     }
 });
 
@@ -113,10 +122,11 @@ router.get("/info/:identifier", (req, res) => {
 router.post("/use", (req, res) => {
     const { name } = req.body;
     try {
-        const result = pdfService.usePDF(name);
+        const userId = req.user.id;
+        const result = pdfService.usePDF(name, userId);
         res.json(result);
     } catch (err) {
-        res.status(400).json({ error: err.message });
+        res.status(400).json({ success: false, error: err.message });
     }
 });
 
@@ -124,54 +134,59 @@ router.post("/use", (req, res) => {
 router.get("/search/:query", (req, res) => {
     const { query } = req.params;
     try {
-        const results = pdfService.searchPDF(decodeURIComponent(query));
+        const userId = req.user.id;
+        const results = pdfService.searchPDF(decodeURIComponent(query), 5, userId);
         res.json(results);
     } catch (err) {
-        res.status(400).json({ error: err.message });
+        res.status(400).json({ success: false, error: err.message });
     }
 });
 
 router.post("/search", (req, res) => {
     const { query } = req.body;
     if (!query) {
-        return res.status(400).json({ error: "Query parameter is required" });
+        return res.status(400).json({ success: false, error: "Query parameter is required" });
     }
     try {
-        const results = pdfService.searchPDF(query);
+        const userId = req.user.id;
+        const results = pdfService.searchPDF(query, 5, userId);
         res.json(results);
     } catch (err) {
-        res.status(400).json({ error: err.message });
+        res.status(400).json({ success: false, error: err.message });
     }
 });
 
-// Remove a specific PDF
+// Remove a specific PDF for authenticated user
 router.delete("/remove/:identifier", (req, res) => {
     const { identifier } = req.params;
     try {
-        const result = pdfService.removePDF(identifier);
+        const userId = req.user.id;
+        const result = pdfService.removePDF(identifier, userId);
         res.json(result);
     } catch (err) {
-        res.status(400).json({ error: err.message });
+        res.status(400).json({ success: false, error: err.message });
     }
 });
 
-// Clear complete PDF knowledge base
+// Clear complete PDF knowledge base for authenticated user
 router.post("/clear", (req, res) => {
     try {
-        const result = pdfService.clearPDFs();
+        const userId = req.user.id;
+        const result = pdfService.clearPDFs(userId);
         res.json(result);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ success: false, error: err.message });
     }
 });
 
-// Turn off PDF knowledge retrieval mode
+// Turn off PDF knowledge retrieval mode for user
 router.post("/off", (req, res) => {
     try {
-        const result = pdfService.turnOffPDF();
+        const userId = req.user.id;
+        const result = pdfService.turnOffPDF(userId);
         res.json(result);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ success: false, error: err.message });
     }
 });
 

@@ -7,12 +7,39 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    const stored = authService.getUser();
-    if (stored && authService.isAuthenticated()) {
-      setUser(stored);
+  const refreshUser = useCallback(async () => {
+    try {
+      const currentUser = await authService.getMe();
+      setUser(currentUser);
+      return currentUser;
+    } catch {
+      setUser(null);
+      return null;
     }
-    setIsLoading(false);
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    (async () => {
+      try {
+        const currentUser = await authService.getMe();
+        if (isMounted) {
+          setUser(currentUser);
+        }
+      } catch {
+        if (isMounted) {
+          setUser(null);
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const login = useCallback(async (email, password) => {
@@ -21,25 +48,36 @@ export function AuthProvider({ children }) {
     return result;
   }, []);
 
-  const signup = useCallback(async (name, email, password) => {
-    const result = await authService.signup(name, email, password);
+  const signup = useCallback(async (name, email, password, confirmPassword) => {
+    const result = await authService.signup(name, email, password, confirmPassword);
     setUser(result.user);
     return result;
   }, []);
 
-  const logout = useCallback(() => {
-    authService.logout();
+  const logout = useCallback(async () => {
+    await authService.logout();
     setUser(null);
   }, []);
 
-  const updateProfile = useCallback((updates) => {
-    const updated = authService.updateProfile(updates);
+  const updateProfile = useCallback(async (updates) => {
+    const updated = await authService.updateProfile(updates);
     if (updated) setUser(updated);
     return updated;
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, signup, logout, updateProfile, isAuthenticated: !!user }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        isLoading,
+        isAuthenticated: !!user,
+        login,
+        signup,
+        logout,
+        updateProfile,
+        refreshUser,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

@@ -1,8 +1,12 @@
 const express = require("express");
 const fs = require("fs");
 const path = require("path");
+const { authMiddleware } = require("../middleware/authMiddleware");
 
 const router = express.Router();
+
+// Protect file routes
+router.use(authMiddleware);
 
 // Workspace root — all file operations restricted to this directory
 const WORKSPACE_ROOT = path.resolve(__dirname, "..");
@@ -28,7 +32,7 @@ function sanitizePath(filename) {
     }
 
     // Block access to sensitive files
-    const blocked = [".env", ".git", "node_modules"];
+    const blocked = [".env", ".git", "node_modules", "database"];
     const relative = path.relative(WORKSPACE_ROOT, resolved);
     const firstSegment = relative.split(path.sep)[0];
     if (blocked.includes(firstSegment)) {

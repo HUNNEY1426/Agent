@@ -28,6 +28,14 @@ export default function App() {
           </ProtectedRoute>
         }
       />
+      <Route
+        path="/profile"
+        element={
+          <ProtectedRoute>
+            <Settings />
+          </ProtectedRoute>
+        }
+      />
       <Route path="/" element={<Navigate to="/chat" replace />} />
       <Route path="*" element={<NotFound />} />
     </Routes>

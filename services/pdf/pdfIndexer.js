@@ -2,10 +2,8 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 
-const BASE_DIR = path.join(__dirname, "../../memory/pdf");
-const METADATA_DIR = path.join(BASE_DIR, "metadata");
-const DOCUMENTS_DIR = path.join(BASE_DIR, "documents");
-const INDEXES_DIR = path.join(BASE_DIR, "indexes");
+const MEMORY_DIR = path.join(__dirname, "../../memory");
+const USERS_DIR = path.join(MEMORY_DIR, "users");
 
 // English stop words for lightweight token filtering
 const STOP_WORDS = new Set([
@@ -14,12 +12,24 @@ const STOP_WORDS = new Set([
     "their", "then", "there", "these", "they", "this", "to", "was", "will", "with"
 ]);
 
-function ensureDirectories() {
-    [BASE_DIR, METADATA_DIR, DOCUMENTS_DIR, INDEXES_DIR].forEach((dir) => {
+function getPDFDirs(userId) {
+    const cleanId = (userId || "default_user").replace(/[^a-zA-Z0-9_-]/g, "_");
+    const baseDir = path.join(USERS_DIR, cleanId, "pdf");
+    const metadataDir = path.join(baseDir, "metadata");
+    const documentsDir = path.join(baseDir, "documents");
+    const indexesDir = path.join(baseDir, "indexes");
+
+    [baseDir, metadataDir, documentsDir, indexesDir].forEach((dir) => {
         if (!fs.existsSync(dir)) {
             fs.mkdirSync(dir, { recursive: true });
         }
     });
+
+    return { baseDir, metadataDir, documentsDir, indexesDir };
+}
+
+function ensureDirectories(userId) {
+    return getPDFDirs(userId);
 }
 
 /**
@@ -71,7 +81,6 @@ function chunkPages(pages, documentId, documentName, chunkSize = 800, chunkOverl
             while (start < text.length) {
                 let end = start + chunkSize;
                 if (end < text.length) {
-                    // Try to break at newline or space
                     const lastSpace = text.lastIndexOf(" ", end);
                     if (lastSpace > start + chunkSize / 2) {
                         end = lastSpace;
@@ -104,14 +113,14 @@ function chunkPages(pages, documentId, documentName, chunkSize = 800, chunkOverl
 }
 
 /**
- * Check if a PDF has already been indexed (by hash).
+ * Check if a PDF has already been indexed for this user (by hash).
  */
-function findDuplicateByHash(fileHash) {
-    ensureDirectories();
-    const files = fs.readdirSync(METADATA_DIR).filter((f) => f.endsWith(".json"));
+function findDuplicateByHash(fileHash, userId) {
+    const { metadataDir } = getPDFDirs(userId);
+    const files = fs.readdirSync(metadataDir).filter((f) => f.endsWith(".json"));
     for (const file of files) {
         try {
-            const meta = JSON.parse(fs.readFileSync(path.join(METADATA_DIR, file), "utf8"));
+            const meta = JSON.parse(fs.readFileSync(path.join(metadataDir, file), "utf8"));
             if (meta.fileHash === fileHash) {
                 return meta;
             }
@@ -121,26 +130,26 @@ function findDuplicateByHash(fileHash) {
 }
 
 /**
- * Save document metadata, pages, and chunk index.
+ * Save document metadata, pages, and chunk index for user.
  */
-function saveDocument({ metadata, pages, chunks }) {
-    ensureDirectories();
+function saveDocument({ metadata, pages, chunks }, userId) {
+    const { metadataDir, documentsDir, indexesDir } = getPDFDirs(userId);
     const docId = metadata.id;
 
-    fs.writeFileSync(path.join(METADATA_DIR, `${docId}.json`), JSON.stringify(metadata, null, 2));
-    fs.writeFileSync(path.join(DOCUMENTS_DIR, `${docId}.json`), JSON.stringify({ id: docId, pages }, null, 2));
-    fs.writeFileSync(path.join(INDEXES_DIR, `${docId}.json`), JSON.stringify({ id: docId, chunks }, null, 2));
+    fs.writeFileSync(path.join(metadataDir, `${docId}.json`), JSON.stringify(metadata, null, 2));
+    fs.writeFileSync(path.join(documentsDir, `${docId}.json`), JSON.stringify({ id: docId, pages }, null, 2));
+    fs.writeFileSync(path.join(indexesDir, `${docId}.json`), JSON.stringify({ id: docId, chunks }, null, 2));
 }
 
 /**
- * Get metadata for a specific document by ID or filename.
+ * Get metadata for a specific document by ID or filename for user.
  */
-function getMetadata(identifier) {
-    ensureDirectories();
-    const files = fs.readdirSync(METADATA_DIR).filter((f) => f.endsWith(".json"));
+function getMetadata(identifier, userId) {
+    const { metadataDir } = getPDFDirs(userId);
+    const files = fs.readdirSync(metadataDir).filter((f) => f.endsWith(".json"));
     for (const file of files) {
         try {
-            const meta = JSON.parse(fs.readFileSync(path.join(METADATA_DIR, file), "utf8"));
+            const meta = JSON.parse(fs.readFileSync(path.join(metadataDir, file), "utf8"));
             if (
                 meta.id === identifier ||
                 meta.originalFilename.toLowerCase() === identifier.toLowerCase() ||
@@ -154,15 +163,15 @@ function getMetadata(identifier) {
 }
 
 /**
- * Get all document metadata list.
+ * Get all document metadata list for user.
  */
-function getAllMetadata() {
-    ensureDirectories();
-    const files = fs.readdirSync(METADATA_DIR).filter((f) => f.endsWith(".json"));
+function getAllMetadata(userId) {
+    const { metadataDir } = getPDFDirs(userId);
+    const files = fs.readdirSync(metadataDir).filter((f) => f.endsWith(".json"));
     const list = [];
     for (const file of files) {
         try {
-            const meta = JSON.parse(fs.readFileSync(path.join(METADATA_DIR, file), "utf8"));
+            const meta = JSON.parse(fs.readFileSync(path.join(metadataDir, file), "utf8"));
             list.push(meta);
         } catch (e) {}
     }
@@ -170,15 +179,15 @@ function getAllMetadata() {
 }
 
 /**
- * Delete index files for a document.
+ * Delete index files for a document for user.
  */
-function removeDocument(docId) {
-    ensureDirectories();
-    const meta = getMetadata(docId);
+function removeDocument(docId, userId) {
+    const { metadataDir, documentsDir, indexesDir } = getPDFDirs(userId);
+    const meta = getMetadata(docId, userId);
     if (!meta) return false;
 
     const actualId = meta.id;
-    [METADATA_DIR, DOCUMENTS_DIR, INDEXES_DIR].forEach((dir) => {
+    [metadataDir, documentsDir, indexesDir].forEach((dir) => {
         const filePath = path.join(dir, `${actualId}.json`);
         if (fs.existsSync(filePath)) {
             fs.unlinkSync(filePath);
@@ -188,11 +197,11 @@ function removeDocument(docId) {
 }
 
 /**
- * Delete all PDF indexes.
+ * Delete all PDF indexes for user.
  */
-function clearAllDocuments() {
-    ensureDirectories();
-    [METADATA_DIR, DOCUMENTS_DIR, INDEXES_DIR].forEach((dir) => {
+function clearAllDocuments(userId) {
+    const { metadataDir, documentsDir, indexesDir } = getPDFDirs(userId);
+    [metadataDir, documentsDir, indexesDir].forEach((dir) => {
         const files = fs.readdirSync(dir);
         for (const file of files) {
             if (file.endsWith(".json")) {
@@ -203,17 +212,17 @@ function clearAllDocuments() {
 }
 
 /**
- * BM25 / TF-IDF chunk retrieval engine.
+ * BM25 / TF-IDF chunk retrieval engine scoped to user.
  */
-function searchChunks(query, activeDocIds = "all", topK = 5) {
-    ensureDirectories();
+function searchChunks(query, activeDocIds = "all", topK = 5, userId = null) {
+    const { indexesDir } = getPDFDirs(userId);
 
     const queryTokens = tokenize(query);
     if (queryTokens.length === 0 && !query.trim()) {
         return [];
     }
 
-    const allDocs = getAllMetadata();
+    const allDocs = getAllMetadata(userId);
     let targetDocIds = [];
 
     if (activeDocIds === "all" || !activeDocIds) {
@@ -231,7 +240,7 @@ function searchChunks(query, activeDocIds = "all", topK = 5) {
     // Load chunks from target documents
     const candidateChunks = [];
     for (const docId of targetDocIds) {
-        const indexFile = path.join(INDEXES_DIR, `${docId}.json`);
+        const indexFile = path.join(indexesDir, `${docId}.json`);
         if (fs.existsSync(indexFile)) {
             try {
                 const indexData = JSON.parse(fs.readFileSync(indexFile, "utf8"));
@@ -247,7 +256,6 @@ function searchChunks(query, activeDocIds = "all", topK = 5) {
     }
 
     const normalizedQuery = query.toLowerCase().trim();
-    const queryTermSet = new Set(queryTokens);
 
     // Document frequency (DF) calculation for BM25
     const totalDocs = candidateChunks.length;
@@ -283,7 +291,6 @@ function searchChunks(query, activeDocIds = "all", topK = 5) {
             if (tf > 0) {
                 const df = docFreq[token] || 1;
                 const idf = Math.log((totalDocs - df + 0.5) / (df + 0.5) + 1);
-                // BM25 formula parameters k1=1.2, b=0.75
                 const lenRatio = chunkTokens.length / 100;
                 const tfScore = (tf * 2.2) / (tf + 1.2 * (1 - 0.75 + 0.75 * lenRatio));
                 score += idf * tfScore;
@@ -296,7 +303,6 @@ function searchChunks(query, activeDocIds = "all", topK = 5) {
         };
     });
 
-    // Filter chunks with positive score and sort descending
     return scoredChunks
         .filter((chunk) => chunk.score > 0.05)
         .sort((a, b) => b.score - a.score)
@@ -304,6 +310,7 @@ function searchChunks(query, activeDocIds = "all", topK = 5) {
 }
 
 module.exports = {
+    getPDFDirs,
     ensureDirectories,
     tokenize,
     calculateFileHash,
