@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Copy, Check, RefreshCw, ThumbsUp, ThumbsDown, Volume2, Square, AlertCircle } from 'lucide-react';
+import { Copy, Check, RefreshCw, ThumbsUp, ThumbsDown, Volume2, Square } from 'lucide-react';
 
 export default function MessageActions({ message, onRegenerate, onSpeak, onStopSpeak, isSpeaking }) {
   const [copied, setCopied] = useState(false);
@@ -12,14 +12,14 @@ export default function MessageActions({ message, onRegenerate, onSpeak, onStopS
   };
 
   return (
-    <div className="flex items-center gap-1 mt-2 pt-2 border-t border-slate-800/50">
+    <div className="flex items-center gap-1 mt-2 pt-2 border-t border-zinc-800/70">
       {/* Copy */}
       <button
         onClick={handleCopy}
-        className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs text-slate-400 hover:text-slate-200 hover:bg-slate-800/80 transition-all"
+        className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all font-medium"
         title="Copy response"
       >
-        {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+        {copied ? <Check className="w-3.5 h-3.5 text-zinc-200" /> : <Copy className="w-3.5 h-3.5" />}
         <span className="hidden sm:inline">{copied ? 'Copied' : 'Copy'}</span>
       </button>
 
@@ -27,7 +27,7 @@ export default function MessageActions({ message, onRegenerate, onSpeak, onStopS
       {onRegenerate && !message.isError && (
         <button
           onClick={() => onRegenerate(message.id)}
-          className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs text-slate-400 hover:text-slate-200 hover:bg-slate-800/80 transition-all"
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all font-medium"
           title="Regenerate response"
         >
           <RefreshCw className="w-3.5 h-3.5" />
@@ -38,14 +38,14 @@ export default function MessageActions({ message, onRegenerate, onSpeak, onStopS
       {/* TTS */}
       <button
         onClick={() => isSpeaking ? onStopSpeak?.() : onSpeak?.(message.id, message.content)}
-        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs transition-all ${
+        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs transition-all font-medium ${
           isSpeaking
-            ? 'text-amber-300 bg-amber-500/10 hover:bg-amber-500/20'
-            : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/80'
+            ? 'text-white bg-zinc-800 border border-zinc-700 shadow-sm'
+            : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
         }`}
         title={isSpeaking ? 'Stop speaking' : 'Read aloud'}
       >
-        {isSpeaking ? <Square className="w-3.5 h-3.5 fill-amber-400" /> : <Volume2 className="w-3.5 h-3.5" />}
+        {isSpeaking ? <Square className="w-3.5 h-3.5 fill-white" /> : <Volume2 className="w-3.5 h-3.5" />}
         <span className="hidden sm:inline">{isSpeaking ? 'Stop' : 'Listen'}</span>
       </button>
 
@@ -55,14 +55,14 @@ export default function MessageActions({ message, onRegenerate, onSpeak, onStopS
       {/* Like / Dislike */}
       <button
         onClick={() => setLiked(liked === 'up' ? null : 'up')}
-        className={`p-1.5 rounded-lg transition-all ${liked === 'up' ? 'text-emerald-400 bg-emerald-500/10' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/60'}`}
+        className={`p-1.5 rounded-lg transition-all ${liked === 'up' ? 'text-white bg-zinc-800 border border-zinc-700' : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/60'}`}
         title="Good response"
       >
         <ThumbsUp className="w-3.5 h-3.5" />
       </button>
       <button
         onClick={() => setLiked(liked === 'down' ? null : 'down')}
-        className={`p-1.5 rounded-lg transition-all ${liked === 'down' ? 'text-red-400 bg-red-500/10' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/60'}`}
+        className={`p-1.5 rounded-lg transition-all ${liked === 'down' ? 'text-zinc-200 bg-zinc-800 border border-zinc-700' : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/60'}`}
         title="Bad response"
       >
         <ThumbsDown className="w-3.5 h-3.5" />

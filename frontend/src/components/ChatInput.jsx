@@ -43,7 +43,7 @@ export default function ChatInput({ onSendMessage, disabled = false, placeholder
     const primaryFile = indexedFiles[0];
     onSendMessage(text.trim(), {
       isVoice,
-      files: [...indexedFiles],
+      files: indexedFiles.length > 0 ? [...indexedFiles] : undefined,
       pdfName: primaryFile?.name,
       pdfId: primaryFile?.id,
     });
@@ -151,8 +151,8 @@ export default function ChatInput({ onSendMessage, disabled = false, placeholder
 
       {/* Uploading indicator */}
       {uploading && (
-        <div className="mb-2 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface-800 border border-brand-500/40 text-xs text-brand-300 animate-pulse">
-          <Loader2 className="w-3.5 h-3.5 animate-spin text-brand-400" />
+        <div className="mb-2 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-700 text-xs text-zinc-200 animate-pulse">
+          <Loader2 className="w-3.5 h-3.5 animate-spin text-zinc-400" />
           <span>📎 {uploading.name} — Uploading & Indexing ({uploading.progress}%)...</span>
         </div>
       )}
@@ -163,16 +163,16 @@ export default function ChatInput({ onSendMessage, disabled = false, placeholder
           {indexedFiles.map((file, i) => (
             <div
               key={i}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-950/50 border border-emerald-800/60 text-xs text-emerald-300 shadow-sm"
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-zinc-900/90 border border-zinc-700 text-xs text-zinc-200 shadow-sm"
             >
-              <FileText className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+              <FileText className="w-3.5 h-3.5 text-zinc-400 flex-shrink-0" />
               <span className="font-medium truncate max-w-[200px]">{file.name}</span>
-              <span className="inline-flex items-center gap-1 text-[10px] bg-emerald-900/60 text-emerald-200 px-1.5 py-0.5 rounded">
-                <CheckCircle2 className="w-2.5 h-2.5" /> Indexed
+              <span className="inline-flex items-center gap-1 text-[10px] bg-zinc-800 text-zinc-300 px-1.5 py-0.5 rounded border border-zinc-700/60">
+                <CheckCircle2 className="w-2.5 h-2.5 text-zinc-300" /> Indexed
               </span>
               <button
                 onClick={() => removeFile(i)}
-                className="text-emerald-400/70 hover:text-emerald-200 p-0.5 rounded hover:bg-emerald-900/40 transition-colors"
+                className="text-zinc-400 hover:text-white p-0.5 rounded hover:bg-zinc-800 transition-colors"
                 title="Remove attachment"
               >
                 <X className="w-3 h-3" />
@@ -183,10 +183,10 @@ export default function ChatInput({ onSendMessage, disabled = false, placeholder
       )}
 
       {/* Input container */}
-      <div className={`relative bg-surface-800/90 backdrop-blur-md rounded-2xl border transition-all duration-200 shadow-xl ${
+      <div className={`relative bg-surface-850/95 backdrop-blur-md rounded-2xl border transition-all duration-200 shadow-2xl shadow-black/80 ${
         isListening
           ? 'border-red-500/50 ring-2 ring-red-500/20'
-          : 'border-slate-800 hover:border-slate-700 focus-within:border-brand-500/60 focus-within:ring-2 focus-within:ring-brand-500/15'
+          : 'border-zinc-800 hover:border-zinc-700 focus-within:border-zinc-500 focus-within:ring-2 focus-within:ring-white/10'
       }`}>
         {/* Listening banner */}
         {isListening && (
@@ -198,7 +198,7 @@ export default function ChatInput({ onSendMessage, disabled = false, placeholder
               </span>
               <span className="font-medium">Listening... ({speechLang === 'hi-IN' ? 'Hindi' : 'English'})</span>
             </div>
-            <button onClick={stopListening} className="text-slate-400 hover:text-slate-200 px-2 py-0.5 rounded bg-slate-800/60 hover:bg-slate-700 transition-colors text-[11px]">
+            <button onClick={stopListening} className="text-zinc-400 hover:text-zinc-200 px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 transition-colors text-[11px]">
               Stop
             </button>
           </div>
@@ -213,37 +213,37 @@ export default function ChatInput({ onSendMessage, disabled = false, placeholder
             onKeyDown={handleKeyDown}
             placeholder={isListening ? 'Listening... Speak now...' : placeholder}
             disabled={disabled}
-            className="w-full bg-transparent text-slate-100 placeholder-slate-500 focus:outline-none resize-none text-sm leading-relaxed max-h-[160px] px-1"
+            className="w-full bg-transparent text-zinc-100 placeholder-zinc-500 focus:outline-none resize-none text-sm leading-relaxed max-h-[160px] px-1"
             aria-label="Chat input"
           />
 
           {isListening && interimTranscript && (
-            <div className="px-1 pb-1 text-xs text-brand-300/70 italic animate-pulse">"{interimTranscript}..."</div>
+            <div className="px-1 pb-1 text-xs text-zinc-400 italic animate-pulse">"{interimTranscript}..."</div>
           )}
 
           {/* Bottom toolbar */}
-          <div className="flex items-center justify-between pt-2 mt-1 border-t border-slate-800/50">
+          <div className="flex items-center justify-between pt-2 mt-1 border-t border-zinc-800/60">
             {/* Left */}
             <div className="flex items-center gap-1.5">
               <button
                 type="button"
                 onClick={handlePaperclipClick}
-                className="p-2 rounded-lg text-slate-400 hover:text-brand-300 hover:bg-slate-800/60 transition-all flex items-center gap-1 text-xs"
+                className="p-2 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all flex items-center gap-1 text-xs"
                 title="Attach PDF (Supported files: PDF only)"
               >
                 <Paperclip className="w-4 h-4" />
-                <span className="hidden md:inline text-[11px] text-slate-500">PDF</span>
+                <span className="hidden md:inline text-[11px] text-zinc-500">PDF</span>
               </button>
 
               {/* Language toggle for Voice */}
-              <div className="hidden sm:flex items-center gap-0.5 bg-slate-800/60 rounded-lg p-0.5 border border-slate-700/40 text-[11px]">
+              <div className="hidden sm:flex items-center gap-0.5 bg-zinc-200 dark:bg-zinc-900 rounded-lg p-0.5 border border-zinc-300 dark:border-zinc-800 text-[11px]">
                 <button
                   onClick={() => setSpeechLang('en-IN')}
-                  className={`px-2 py-0.5 rounded-md font-medium transition-all ${speechLang === 'en-IN' ? 'bg-brand-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
+                  className={`px-2 py-0.5 rounded-md font-medium transition-all ${speechLang === 'en-IN' ? 'bg-white text-zinc-950 font-semibold shadow-sm' : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-950 dark:hover:text-zinc-200'}`}
                 >EN</button>
                 <button
                   onClick={() => setSpeechLang('hi-IN')}
-                  className={`px-2 py-0.5 rounded-md font-medium transition-all ${speechLang === 'hi-IN' ? 'bg-brand-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
+                  className={`px-2 py-0.5 rounded-md font-medium transition-all ${speechLang === 'hi-IN' ? 'bg-white text-zinc-950 font-semibold shadow-sm' : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-950 dark:hover:text-zinc-200'}`}
                 >HI</button>
               </div>
             </div>
@@ -262,8 +262,8 @@ export default function ChatInput({ onSendMessage, disabled = false, placeholder
                 disabled={!text.trim() || disabled}
                 className={`p-2.5 rounded-xl transition-all duration-200 flex items-center justify-center ${
                   text.trim() && !disabled
-                    ? 'bg-brand-600 hover:bg-brand-500 text-white shadow-lg shadow-brand-600/25'
-                    : 'bg-slate-800/60 text-slate-600 cursor-not-allowed'
+                    ? 'bg-zinc-950 hover:bg-zinc-800 text-white dark:bg-white dark:hover:bg-zinc-200 dark:text-zinc-950 font-bold shadow-lg shadow-black/10 dark:shadow-white/10'
+                    : 'bg-zinc-200 text-zinc-400 dark:bg-zinc-850 dark:text-zinc-600 border border-zinc-300 dark:border-zinc-800 cursor-not-allowed'
                 }`}
                 title="Send message (Enter)"
                 aria-label="Send message"

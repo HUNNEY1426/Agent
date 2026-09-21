@@ -42,7 +42,9 @@ async function askAI(question, options = {}) {
         text: question
     };
 
-    const targetDoc = options.pdfId || options.pdfName || options.pdf || options.files;
+    const hasFiles = (Array.isArray(options.files) && options.files.length > 0) ||
+                     (typeof options.files === 'string' && options.files.trim().length > 0);
+    const targetDoc = options.pdfId || options.pdfName || (typeof options.pdf === 'string' && options.pdf) || (hasFiles ? options.files : null);
     const pdfStatus = pdfService.getStatus(userId);
     let finalUserPrompt = question;
     let citations        = [];
@@ -53,7 +55,7 @@ async function askAI(question, options = {}) {
 
     // ── PDF context (scoped to userId) ───────────────────────
     let pdfContextText = "";
-    if (pdfStatus.enabled || targetDoc) {
+    if (targetDoc || pdfStatus.enabled) {
         const pdfContext = pdfService.buildContext(question, 4, targetDoc, userId);
         citations = pdfContext.citations || [];
         pdfUsed   = pdfContext.hasContext;
@@ -79,7 +81,7 @@ async function askAI(question, options = {}) {
         const parts = [];
         parts.push("You are answering questions using additional context provided below.");
         parts.push("Use the context to give accurate, grounded answers.");
-        parts.push("If the answer cannot be found in the context, say so clearly.\n");
+        parts.push("If the context provides relevant information, prioritize it. If the context does not fully answer the user's question or the user asks a general knowledge question, provide a complete and helpful answer using your general knowledge.\n");
 
         if (pdfContextText) {
             parts.push("--- Relevant PDF context ---");
@@ -96,9 +98,9 @@ async function askAI(question, options = {}) {
         parts.push("User question:");
         parts.push(question);
         finalUserPrompt = parts.join("\n");
-    } else if (pdfStatus.enabled || targetDoc) {
-        // PDF mode on but nothing found
-        finalUserPrompt = `You are answering questions strictly using the active PDF Knowledge Base.\n\nUser question:\n${question}\n\nNo relevant context was found in the active PDF document(s).\nClearly state: "I could not find this information in the PDF."`;
+    } else {
+        // No relevant context found in PDF or history - answer directly using general AI knowledge!
+        finalUserPrompt = question;
     }
 
     const messages = [

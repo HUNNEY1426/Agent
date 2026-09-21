@@ -37,7 +37,7 @@ export default function Chat() {
 
           {/* Right panel: Files or History */}
           {(showFiles || showHistory) && (
-            <div className="w-80 border-l border-slate-800/80 bg-surface-900 hidden lg:flex flex-col">
+            <div className="w-80 border-l border-zinc-800/80 bg-surface-900 hidden lg:flex flex-col">
               {showFiles && <FileLibrary isOpen={showFiles} onClose={() => setShowFiles(false)} />}
               {showHistory && <HistorySearch isOpen={showHistory} onClose={() => setShowHistory(false)} />}
             </div>

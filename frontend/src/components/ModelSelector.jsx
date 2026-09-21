@@ -24,23 +24,23 @@ export default function ModelSelector({ providers, currentProvider, onProviderCh
     <div className="relative">
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface-800 border border-slate-700/50 hover:border-slate-600 text-sm transition-all"
+        className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface-850 border border-zinc-800 hover:border-zinc-700 text-sm transition-all shadow-sm"
         title="Select AI Provider and Model"
       >
-        <Cpu className="w-3.5 h-3.5 text-brand-400" />
-        <span className="text-slate-200 font-medium max-w-[150px] truncate">
+        <Cpu className="w-3.5 h-3.5 text-zinc-300" />
+        <span className="text-zinc-200 font-medium max-w-[150px] truncate text-xs sm:text-sm">
           {currentModel || (activeProviderObj?.name || currentProvider)}
         </span>
-        <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+        <ChevronDown className={`w-3.5 h-3.5 text-zinc-500 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute top-full mt-2 right-0 z-50 w-80 bg-surface-800 border border-slate-700/60 rounded-xl shadow-2xl shadow-black/40 overflow-hidden animate-fade-in">
+          <div className="absolute top-full mt-2 right-0 z-50 w-80 bg-surface-850 border border-zinc-700/80 rounded-xl shadow-2xl shadow-black/80 overflow-hidden animate-fade-in">
             {/* AI Provider Section */}
-            <div className="p-3 border-b border-slate-800">
-              <label className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2 block">
+            <div className="p-3 border-b border-zinc-800">
+              <label className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 mb-2 block">
                 AI Provider
               </label>
               <div className="space-y-1.5">
@@ -57,8 +57,8 @@ export default function ModelSelector({ providers, currentProvider, onProviderCh
                       }}
                       className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-all ${
                         isSelected
-                          ? 'bg-brand-600 text-white shadow'
-                          : 'bg-surface-850/60 text-slate-300 hover:bg-slate-700/80'
+                          ? 'bg-zinc-950 text-white dark:bg-white dark:text-zinc-950 font-semibold shadow'
+                          : 'bg-zinc-100 dark:bg-zinc-900/70 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-800 hover:text-zinc-950 dark:hover:text-white border border-zinc-200 dark:border-zinc-800/80'
                       }`}
                     >
                       <div className="flex items-center gap-2">
@@ -67,17 +67,17 @@ export default function ModelSelector({ providers, currentProvider, onProviderCh
 
                       <div className="flex items-center gap-1.5 text-[11px]">
                         {isConfigured && !isOffline ? (
-                          <span className={`inline-flex items-center gap-1 ${isSelected ? 'text-brand-100' : 'text-emerald-400'}`}>
+                          <span className={`inline-flex items-center gap-1 ${isSelected ? 'text-zinc-700' : 'text-zinc-400'}`}>
                             <CheckCircle2 className="w-3.5 h-3.5" />
                             <span>Available</span>
                           </span>
                         ) : isOffline ? (
-                          <span className={`inline-flex items-center gap-1 ${isSelected ? 'text-amber-200' : 'text-slate-400'}`}>
+                          <span className={`inline-flex items-center gap-1 ${isSelected ? 'text-zinc-500' : 'text-zinc-500'}`}>
                             <XCircle className="w-3.5 h-3.5" />
                             <span>Offline</span>
                           </span>
                         ) : (
-                          <span className={`inline-flex items-center gap-1 ${isSelected ? 'text-amber-200' : 'text-amber-400/90'}`}>
+                          <span className={`inline-flex items-center gap-1 ${isSelected ? 'text-zinc-600' : 'text-zinc-400'}`}>
                             <AlertTriangle className="w-3.5 h-3.5" />
                             <span>Not configured</span>
                           </span>
@@ -91,7 +91,7 @@ export default function ModelSelector({ providers, currentProvider, onProviderCh
 
             {/* Model Selection */}
             <div className="p-3 max-h-52 overflow-y-auto">
-              <label className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2 block">
+              <label className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 mb-2 block">
                 Available Models ({activeProviderObj?.name || currentProvider})
               </label>
               <div className="space-y-1">
@@ -105,18 +105,18 @@ export default function ModelSelector({ providers, currentProvider, onProviderCh
                       }}
                       className={`w-full text-left px-3 py-2 rounded-lg text-xs font-mono transition-all flex items-center justify-between ${
                         currentModel === m
-                          ? 'bg-brand-600/20 text-brand-300 border border-brand-500/30'
-                          : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                          ? 'bg-zinc-200 text-zinc-950 dark:bg-zinc-800 dark:text-white border border-zinc-300 dark:border-zinc-700 font-semibold'
+                          : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800/70 hover:text-zinc-950 dark:hover:text-zinc-200'
                       }`}
                     >
                       <span className="truncate">{m}</span>
                       {currentModel === m && (
-                        <span className="text-[10px] bg-brand-500/20 text-brand-300 px-1.5 py-0.5 rounded ml-2">Active</span>
+                        <span className="text-[10px] bg-zinc-950 text-white dark:bg-white dark:text-zinc-950 font-sans font-bold px-1.5 py-0.5 rounded ml-2">Active</span>
                       )}
                     </button>
                   ))
                 ) : (
-                  <p className="text-xs text-slate-500 italic px-2 py-1">No models available for this provider</p>
+                  <p className="text-xs text-zinc-500 italic px-2 py-1">No models available for this provider</p>
                 )}
               </div>
             </div>

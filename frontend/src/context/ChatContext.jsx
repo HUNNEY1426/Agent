@@ -253,7 +253,7 @@ export function ChatProvider({ children }) {
         thinkingLevel: currentThinking,
         pdfName: options.pdfName || (options.files?.[0]?.name),
         pdfId: options.pdfId || (options.files?.[0]?.id),
-        files: options.files,
+        files: (options.files && options.files.length > 0) ? options.files : undefined,
       });
 
       if (data.sessionId && data.sessionId !== activeSessionId) {

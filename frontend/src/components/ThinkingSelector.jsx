@@ -2,10 +2,10 @@ import React, { useState } from 'react';
 import { Brain, ChevronDown } from 'lucide-react';
 
 const levelColors = {
-  low: 'text-emerald-400',
-  medium: 'text-amber-400',
-  high: 'text-orange-400',
-  ultra: 'text-red-400',
+  low: 'text-zinc-400',
+  medium: 'text-zinc-300',
+  high: 'text-zinc-100',
+  ultra: 'text-white',
 };
 
 export default function ThinkingSelector({ levels, current, onChange, provider = 'gemini' }) {
@@ -24,22 +24,22 @@ export default function ThinkingSelector({ levels, current, onChange, provider =
     <div className="relative">
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-surface-800 border border-slate-700/50 hover:border-slate-600 text-xs transition-all"
+        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-surface-850 border border-zinc-800 hover:border-zinc-700 text-xs transition-all shadow-sm"
         title="Gemini Thinking Level (Reasoning Effort)"
       >
-        <Brain className={`w-3.5 h-3.5 ${levelColors[current] || 'text-brand-400'}`} />
-        <span className="text-slate-300 capitalize hidden sm:inline">
+        <Brain className={`w-3.5 h-3.5 ${levelColors[current] || 'text-zinc-300'}`} />
+        <span className="text-zinc-300 capitalize hidden sm:inline">
           {levels[current]?.label || current}
         </span>
-        <ChevronDown className={`w-3 h-3 text-slate-500 transition-transform ${open ? 'rotate-180' : ''}`} />
+        <ChevronDown className={`w-3 h-3 text-zinc-500 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute top-full mt-2 right-0 z-50 w-60 bg-surface-800 border border-slate-700/60 rounded-xl shadow-2xl shadow-black/40 overflow-hidden animate-fade-in">
+          <div className="absolute top-full mt-2 right-0 z-50 w-60 bg-surface-850 border border-zinc-700/80 rounded-xl shadow-2xl shadow-black/80 overflow-hidden animate-fade-in">
             <div className="p-3">
-              <label className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2 block">
+              <label className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 mb-2 block">
                 Thinking / Reasoning Effort
               </label>
               <div className="space-y-1">
@@ -52,19 +52,19 @@ export default function ThinkingSelector({ levels, current, onChange, provider =
                     }}
                     className={`w-full text-left px-3 py-2 rounded-lg text-xs transition-all flex items-center justify-between ${
                       current === key
-                        ? 'bg-brand-600/15 border border-brand-500/30 text-brand-300'
-                        : 'hover:bg-slate-800 text-slate-300'
+                        ? 'bg-zinc-200 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 text-zinc-950 dark:text-white font-medium'
+                        : 'hover:bg-zinc-100 dark:hover:bg-zinc-800/60 text-zinc-600 dark:text-zinc-400 hover:text-zinc-950 dark:hover:text-zinc-200'
                     }`}
                   >
                     <div className="flex items-center gap-2">
                       <div className={`w-2 h-2 rounded-full ${
-                        current === key ? 'bg-brand-400' : 'bg-slate-600'
+                        current === key ? 'bg-zinc-950 dark:bg-white' : 'bg-zinc-400 dark:bg-zinc-600'
                       }`} />
-                      <span className={`capitalize font-medium ${current === key ? 'text-brand-300' : 'text-slate-200'}`}>
+                      <span className={`capitalize ${current === key ? 'text-zinc-950 dark:text-white font-semibold' : 'text-zinc-700 dark:text-zinc-300'}`}>
                         {levels[key]?.label || key}
                       </span>
                     </div>
-                    <span className="text-[10px] text-slate-500">{levels[key]?.description?.split(' ').slice(0, 3).join(' ')}</span>
+                    <span className="text-[10px] text-zinc-500">{levels[key]?.description?.split(' ').slice(0, 3).join(' ')}</span>
                   </button>
                 ))}
               </div>

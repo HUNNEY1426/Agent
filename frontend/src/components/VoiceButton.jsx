@@ -12,7 +12,7 @@ export default function VoiceButton({ isListening, isSupported, disabled, onClic
       className={`relative p-2.5 rounded-xl transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-offset-surface-900 ${
         isListening
           ? 'bg-red-600 text-white shadow-lg shadow-red-600/30 hover:bg-red-500 focus:ring-red-500'
-          : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800 focus:ring-brand-500'
+          : 'text-zinc-400 hover:text-white hover:bg-zinc-800 focus:ring-zinc-400'
       } disabled:opacity-30 disabled:cursor-not-allowed`}
       title={isListening ? 'Stop recording' : 'Voice input'}
       aria-label={isListening ? 'Stop recording' : 'Start voice input'}

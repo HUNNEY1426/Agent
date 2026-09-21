@@ -2,8 +2,118 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
+:root,
+html.dark {
+  color-scheme: dark;
+  --bg-body: #060608;
+  --text-body: #f4f4f5;
+
+  /* Surface tokens (R G B) */
+  --surface-0: 255 255 255;
+  --surface-50: 250 250 250;
+  --surface-100: 244 244 245;
+  --surface-200: 228 228 231;
+  --surface-600: 63 63 70;
+  --surface-700: 39 39 42;
+  --surface-750: 31 32 36;
+  --surface-800: 24 24 27;
+  --surface-850: 18 18 21;
+  --surface-900: 12 13 15;
+  --surface-950: 6 6 8;
+  --surface-1000: 0 0 0;
+
+  /* Zinc monochrome scale (R G B) for dark mode */
+  --zinc-50: 250 250 250;
+  --zinc-100: 244 244 245;
+  --zinc-200: 228 228 231;
+  --zinc-300: 212 212 216;
+  --zinc-400: 161 161 170;
+  --zinc-500: 113 113 122;
+  --zinc-600: 82 82 91;
+  --zinc-700: 39 39 42;
+  --zinc-800: 24 24 27;
+  --zinc-850: 18 18 21;
+  --zinc-900: 12 13 15;
+  --zinc-950: 7 7 8;
+
+  /* Brand monochrome scale */
+  --brand-50: 250 250 250;
+  --brand-100: 244 244 245;
+  --brand-200: 228 228 231;
+  --brand-300: 212 212 216;
+  --brand-400: 161 161 170;
+  --brand-500: 113 113 122;
+  --brand-600: 39 39 42;
+  --brand-700: 31 31 35;
+  --brand-800: 22 22 24;
+  --brand-900: 15 15 17;
+  --brand-950: 7 7 8;
+
+  --scrollbar-thumb: rgba(255, 255, 255, 0.12);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.24);
+  --focus-ring: rgba(255, 255, 255, 0.4);
+  --focus-ring-glow: rgba(255, 255, 255, 0.08);
+}
+
+html.light {
+  color-scheme: light;
+  --bg-body: #f5f6f8;
+  --text-body: #0a0c10;
+
+  /* Surface tokens (R G B) for light mode */
+  --surface-0: 0 0 0;
+  --surface-50: 12 13 15;
+  --surface-100: 24 24 27;
+  --surface-200: 39 39 42;
+  --surface-600: 200 205 215;
+  --surface-700: 224 227 235;
+  --surface-750: 232 235 242;
+  --surface-800: 240 242 246;
+  --surface-850: 255 255 255;
+  --surface-900: 255 255 255;
+  --surface-950: 245 246 248;
+  --surface-1000: 255 255 255;
+
+  /* Zinc monochrome scale (R G B) for light mode */
+  --zinc-50: 0 0 0;
+  --zinc-100: 10 12 16;       /* primary text - deep pitch black */
+  --zinc-200: 24 27 34;       /* prominent text - dark charcoal */
+  --zinc-300: 45 50 60;       /* body text - clean dark neutral */
+  --zinc-400: 75 85 99;       /* secondary text - medium dark grey */
+  --zinc-500: 107 114 128;    /* muted text */
+  --zinc-600: 156 163 175;
+  --zinc-700: 209 213 222;    /* strong border */
+  --zinc-800: 226 229 236;    /* clean light border */
+  --zinc-850: 242 244 248;    /* light inset */
+  --zinc-900: 248 249 251;    /* light element background */
+  --zinc-950: 255 255 255;    /* pure white */
+
+  /* Brand monochrome scale */
+  --brand-50: 10 12 16;
+  --brand-100: 24 27 34;
+  --brand-200: 45 50 60;
+  --brand-300: 75 85 99;
+  --brand-400: 107 114 128;
+  --brand-500: 156 163 175;
+  --brand-600: 209 213 222;
+  --brand-700: 226 229 236;
+  --brand-800: 242 244 248;
+  --brand-900: 248 249 251;
+  --brand-950: 255 255 255;
+
+  --scrollbar-thumb: rgba(0, 0, 0, 0.14);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.28);
+  --focus-ring: rgba(0, 0, 0, 0.4);
+  --focus-ring-glow: rgba(0, 0, 0, 0.08);
+}
+
+body {
+  background-color: var(--bg-body);
+  color: var(--text-body);
   font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 code,
@@ -11,10 +121,10 @@ pre {
   font-family: 'JetBrains Mono', monospace;
 }
 
-/* Custom smooth scrollbar */
+/* Custom smooth monochrome scrollbar */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 
 ::-webkit-scrollbar-track {
@@ -22,12 +132,12 @@ pre {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.2);
+  background: var(--scrollbar-thumb);
   border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.4);
+  background: var(--scrollbar-thumb-hover);
 }
 
 /* Audio waves animation */
@@ -47,6 +157,7 @@ pre {
 
 .wave-bar {
   animation: soundwave 1s ease-in-out infinite;
+  background-color: currentColor;
 }
 
 .wave-bar:nth-child(1) {
@@ -67,4 +178,21 @@ pre {
 
 .wave-bar:nth-child(5) {
   animation-delay: 0.3s;
+}
+
+/* Monochrome focus ring utility */
+.focus-mono {
+  outline: none;
+}
+.focus-mono:focus {
+  border-color: var(--focus-ring);
+  box-shadow: 0 0 0 2px var(--focus-ring-glow);
+}
+
+/* Light mode overrides for generic hover white */
+html.light .hover\:text-white:hover {
+  color: #0a0c10;
+}
+html.light .group:hover .group-hover\:text-white {
+  color: #0a0c10;
 }
