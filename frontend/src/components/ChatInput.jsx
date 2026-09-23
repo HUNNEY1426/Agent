@@ -16,17 +16,16 @@ export default function ChatInput({ onSendMessage, disabled = false, placeholder
   const fileInputRef = useRef(null);
 
   const {
-    isListening, interimTranscript, error: speechError,
+    isListening, isTranscribing, interimTranscript, error: speechError,
     isSupported, startListening, stopListening, resetTranscript, clearError,
   } = useSpeechRecognition({
     language: speechLang,
     onResult: (finalText) => {
       setText(prev => {
         const trimmed = prev.trim();
-        return trimmed ? trimmed + ' ' + finalText : finalText;
+        return trimmed ? `${trimmed} ${finalText}` : finalText;
       });
       setIsVoice(true);
-      resetTranscript();
     },
   });
 
@@ -38,10 +37,16 @@ export default function ChatInput({ onSendMessage, disabled = false, placeholder
   }, [text]);
 
   const handleSubmit = () => {
-    if (!text.trim() || disabled) return;
-    if (isListening) stopListening();
+    let messageText = text.trim();
+    if (isListening) {
+      const flushed = stopListening();
+      if (flushed && typeof flushed === 'string' && flushed.trim()) {
+        messageText = messageText ? `${messageText} ${flushed.trim()}` : flushed.trim();
+      }
+    }
+    if (!messageText || disabled) return;
     const primaryFile = indexedFiles[0];
-    onSendMessage(text.trim(), {
+    onSendMessage(messageText, {
       isVoice,
       files: indexedFiles.length > 0 ? [...indexedFiles] : undefined,
       pdfName: primaryFile?.name,
@@ -63,10 +68,25 @@ export default function ChatInput({ onSendMessage, disabled = false, placeholder
 
   const handleMicToggle = () => {
     if (isListening) {
-      stopListening();
+      const flushed = stopListening();
+      if (flushed && typeof flushed === 'string' && flushed.trim()) {
+        setText(prev => {
+          const trimmed = prev.trim();
+          return trimmed ? `${trimmed} ${flushed.trim()}` : flushed.trim();
+        });
+        setIsVoice(true);
+      }
     } else {
       clearError();
       startListening(speechLang);
+    }
+  };
+
+  const handleLanguageChange = (newLang) => {
+    setSpeechLang(newLang);
+    if (isListening) {
+      stopListening();
+      setTimeout(() => startListening(newLang), 100);
     }
   };
 
@@ -186,21 +206,40 @@ export default function ChatInput({ onSendMessage, disabled = false, placeholder
       <div className={`relative bg-surface-850/95 backdrop-blur-md rounded-2xl border transition-all duration-200 shadow-2xl shadow-black/80 ${
         isListening
           ? 'border-red-500/50 ring-2 ring-red-500/20'
+          : isTranscribing
+          ? 'border-zinc-600 ring-2 ring-zinc-500/20'
           : 'border-zinc-800 hover:border-zinc-700 focus-within:border-zinc-500 focus-within:ring-2 focus-within:ring-white/10'
       }`}>
-        {/* Listening banner */}
-        {isListening && (
-          <div className="px-4 pt-2.5 pb-1 flex items-center justify-between text-xs text-red-400 border-b border-red-900/30">
+        {/* Listening / Transcribing banner */}
+        {(isListening || isTranscribing) && (
+          <div className="px-4 pt-2.5 pb-1 flex items-center justify-between text-xs border-b border-zinc-800 text-zinc-300">
             <div className="flex items-center gap-2">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
-              </span>
-              <span className="font-medium">Listening... ({speechLang === 'hi-IN' ? 'Hindi' : 'English'})</span>
+              {isTranscribing ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-zinc-400" />
+                  <span className="font-medium text-zinc-300">Transcribing audio with Whisper AI...</span>
+                </>
+              ) : (
+                <>
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
+                  </span>
+                  <span className="font-medium text-red-400">
+                    Recording... ({speechLang === 'hi-IN' ? 'Hindi' : 'English'})
+                  </span>
+                </>
+              )}
             </div>
-            <button onClick={stopListening} className="text-zinc-400 hover:text-zinc-200 px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 transition-colors text-[11px]">
-              Stop
-            </button>
+            {isListening && (
+              <button
+                type="button"
+                onClick={handleMicToggle}
+                className="text-zinc-300 hover:text-white px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 transition-colors text-[11px] font-medium"
+              >
+                Stop & Transcribe
+              </button>
+            )}
           </div>
         )}
 
@@ -211,14 +250,20 @@ export default function ChatInput({ onSendMessage, disabled = false, placeholder
             value={text}
             onChange={(e) => { setText(e.target.value); if (!e.target.value) setIsVoice(false); }}
             onKeyDown={handleKeyDown}
-            placeholder={isListening ? 'Listening... Speak now...' : placeholder}
-            disabled={disabled}
+            placeholder={
+              isTranscribing
+                ? 'Transcribing audio with AI...'
+                : isListening
+                ? 'Recording... Speak now, then click Stop...'
+                : placeholder
+            }
+            disabled={disabled || isTranscribing}
             className="w-full bg-transparent text-zinc-100 placeholder-zinc-500 focus:outline-none resize-none text-sm leading-relaxed max-h-[160px] px-1"
             aria-label="Chat input"
           />
 
-          {isListening && interimTranscript && (
-            <div className="px-1 pb-1 text-xs text-zinc-400 italic animate-pulse">"{interimTranscript}..."</div>
+          {(isListening || isTranscribing) && interimTranscript && (
+            <div className="px-1 pb-1 text-xs text-zinc-400 italic animate-pulse">"{interimTranscript}"</div>
           )}
 
           {/* Bottom toolbar */}
@@ -238,11 +283,13 @@ export default function ChatInput({ onSendMessage, disabled = false, placeholder
               {/* Language toggle for Voice */}
               <div className="hidden sm:flex items-center gap-0.5 bg-zinc-200 dark:bg-zinc-900 rounded-lg p-0.5 border border-zinc-300 dark:border-zinc-800 text-[11px]">
                 <button
-                  onClick={() => setSpeechLang('en-IN')}
+                  type="button"
+                  onClick={() => handleLanguageChange('en-IN')}
                   className={`px-2 py-0.5 rounded-md font-medium transition-all ${speechLang === 'en-IN' ? 'bg-white text-zinc-950 font-semibold shadow-sm' : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-950 dark:hover:text-zinc-200'}`}
                 >EN</button>
                 <button
-                  onClick={() => setSpeechLang('hi-IN')}
+                  type="button"
+                  onClick={() => handleLanguageChange('hi-IN')}
                   className={`px-2 py-0.5 rounded-md font-medium transition-all ${speechLang === 'hi-IN' ? 'bg-white text-zinc-950 font-semibold shadow-sm' : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-950 dark:hover:text-zinc-200'}`}
                 >HI</button>
               </div>
@@ -252,6 +299,7 @@ export default function ChatInput({ onSendMessage, disabled = false, placeholder
             <div className="flex items-center gap-1.5">
               <VoiceButton
                 isListening={isListening}
+                isTranscribing={isTranscribing}
                 isSupported={isSupported}
                 disabled={disabled}
                 onClick={handleMicToggle}

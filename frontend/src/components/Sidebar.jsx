@@ -122,11 +122,19 @@ export default function Sidebar({ isOpen, onClose, onShowFiles, onShowHistory })
               <p className="text-xs text-zinc-500 px-3 py-4 text-center">No conversations</p>
             ) : (
               filteredSessions.map(session => (
-                <button
+                <div
                   key={session.id}
+                  role="button"
+                  tabIndex={0}
                   onClick={() => handleSelectSession(session.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      handleSelectSession(session.id);
+                    }
+                  }}
                   onContextMenu={(e) => handleContextMenu(e, session.id)}
-                  className={`group w-full flex items-center justify-between px-3 py-2 rounded-lg text-left transition-all ${
+                  className={`group w-full flex items-center justify-between px-3 py-2 rounded-lg text-left transition-all cursor-pointer ${
                     activeSessionId === session.id
                       ? 'bg-zinc-200 dark:bg-zinc-800/90 border border-zinc-300 dark:border-zinc-700/80 text-zinc-950 dark:text-white font-medium shadow-sm'
                       : 'text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800/50 hover:text-zinc-900 dark:hover:text-zinc-200 border border-transparent'
@@ -144,12 +152,17 @@ export default function Sidebar({ isOpen, onClose, onShowFiles, onShowHistory })
                     </div>
                   </div>
                   <button
-                    onClick={(e) => handleContextMenu(e, session.id)}
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleContextMenu(e, session.id);
+                    }}
                     className="p-1 rounded opacity-0 group-hover:opacity-100 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700/60 transition-all"
+                    title="Session options"
                   >
                     <MoreHorizontal className="w-3.5 h-3.5" />
                   </button>
-                </button>
+                </div>
               ))
             )}
           </div>

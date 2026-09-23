@@ -1,6 +1,16 @@
 const express = require("express");
 const router = express.Router();
 const path = require("path");
+const { spawn } = require("child_process");
+const multer = require("multer");
+const ffmpeg = require("ffmpeg-static");
+const { OpenAI, toFile } = require("openai");
+const { GoogleGenAI } = require("@google/genai");
+
+const audioUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 25 * 1024 * 1024 }
+});
 
 const { askAI } = require("../services/aiService");
 const providerManager = require("../services/providerManager");
@@ -415,6 +425,125 @@ router.post("/chat/restore", async (req, res) => {
         res.status(err.message === "Session not found in archives" ? 404 : err.message === "Session already exists in active sessions" ? 409 : 400).json({
             success: false,
             error: err.message
+        });
+    }
+});
+
+function convertBufferToWav(buffer) {
+    return new Promise((resolve, reject) => {
+        const proc = spawn(ffmpeg, [
+            "-i", "pipe:0",
+            "-acodec", "pcm_s16le",
+            "-ar", "16000",
+            "-ac", "1",
+            "-f", "wav",
+            "pipe:1"
+        ]);
+        const chunks = [];
+        proc.stdout.on("data", c => chunks.push(c));
+        proc.stderr.on("data", () => {});
+        proc.on("close", code => {
+            if (code === 0) resolve(Buffer.concat(chunks));
+            else reject(new Error(`FFmpeg exited with code ${code}`));
+        });
+        proc.on("error", reject);
+        proc.stdin.write(buffer);
+        proc.stdin.end();
+    });
+}
+
+// Transcribe Audio via Gemini AI (Primary, free tier) and Whisper AI (Fallback)
+router.post("/transcribe", audioUpload.single("audio"), async (req, res) => {
+    try {
+        if (!req.file || !req.file.buffer || req.file.buffer.length === 0) {
+            return res.status(400).json({
+                success: false,
+                error: { code: "NO_AUDIO", message: "Audio file is required" }
+            });
+        }
+
+        const lang = req.body.language === "hi-IN" ? "Hindi" : "English";
+        let transcribedText = "";
+
+        // 1. Try Gemini Multimodal Audio first (works with GEMINI_API_KEY)
+        if (process.env.GEMINI_API_KEY) {
+            try {
+                let wavBuffer = req.file.buffer;
+                try {
+                    wavBuffer = await convertBufferToWav(req.file.buffer);
+                } catch (convErr) {
+                    console.warn("[Transcribe] WAV conversion warning:", convErr.message);
+                }
+
+                const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+                const prompt = `Listen carefully to this audio recording and transcribe the speech verbatim in its original spoken language (${lang}). Output ONLY the transcribed words with no commentary, quotation marks, or explanations. If there is no discernible speech or only silence, output nothing.`;
+
+                // Try gemini-3.5-flash-lite, fallback to gemini-3.6-flash
+                for (const model of ["gemini-3.5-flash-lite", "gemini-3.6-flash"]) {
+                    try {
+                        const response = await ai.models.generateContent({
+                            model,
+                            contents: [
+                                {
+                                    inlineData: {
+                                        mimeType: "audio/wav",
+                                        data: wavBuffer.toString("base64")
+                                    }
+                                },
+                                prompt
+                            ]
+                        });
+                        if (response && typeof response.text === "string" && response.text.trim()) {
+                            transcribedText = response.text.trim();
+                            break;
+                        }
+                    } catch (mErr) {
+                        console.warn(`[Transcribe] Model ${model} error:`, mErr.message);
+                    }
+                }
+            } catch (geminiErr) {
+                console.warn("[Transcribe] Gemini transcription error:", geminiErr.message);
+            }
+        }
+
+        // 2. Fallback to OpenAI Whisper if Gemini didn't return text and OPENAI_API_KEY is present
+        if (!transcribedText && process.env.OPENAI_API_KEY) {
+            try {
+                const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+                const whisperLang = req.body.language === "hi-IN" ? "hi" : "en";
+                const originalName = req.file.originalname || "recording.webm";
+                const fileObj = await toFile(req.file.buffer, originalName, { type: req.file.mimetype || "audio/webm" });
+
+                const transcription = await openai.audio.transcriptions.create({
+                    file: fileObj,
+                    model: "whisper-1",
+                    language: whisperLang,
+                    response_format: "text"
+                });
+
+                transcribedText = (typeof transcription === "string" ? transcription : transcription.text || "").trim();
+            } catch (whisperErr) {
+                console.warn("[Transcribe] Whisper transcription error:", whisperErr.message);
+            }
+        }
+
+        if (!transcribedText) {
+            return res.status(200).json({
+                success: true,
+                text: "",
+                message: "No speech recognized."
+            });
+        }
+
+        return res.json({
+            success: true,
+            text: transcribedText
+        });
+    } catch (err) {
+        console.error("Audio transcription error:", err.message);
+        return res.status(500).json({
+            success: false,
+            error: { code: "TRANSCRIPTION_FAILED", message: err.message || "Failed to transcribe audio" }
         });
     }
 });
