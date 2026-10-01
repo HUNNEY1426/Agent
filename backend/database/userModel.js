@@ -1,12 +1,12 @@
 const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
-const { db, initDatabase } = require("./db");
 
 const SALT_ROUNDS = 10;
+const usersDB = [];
 
 class UserModel {
     static async ensureReady() {
-        await initDatabase();
+        return Promise.resolve();
     }
 
     static async hashPassword(password) {
@@ -21,13 +21,16 @@ class UserModel {
     static formatUser(row) {
         if (!row) return null;
         let parsedSettings = {};
-        if (row.settings) {
+        if (typeof row.settings === 'string') {
             try {
                 parsedSettings = JSON.parse(row.settings);
             } catch (e) {
                 parsedSettings = {};
             }
+        } else if (row.settings) {
+            parsedSettings = row.settings;
         }
+        
         return {
             id: row.id,
             name: row.name,
@@ -39,7 +42,6 @@ class UserModel {
     }
 
     static async createUser({ name, email, password, settings = {} }) {
-        await this.ensureReady();
         const trimmedEmail = (email || "").trim().toLowerCase();
         const trimmedName = (name || "").trim();
 
@@ -57,110 +59,64 @@ class UserModel {
         const passwordHash = await this.hashPassword(password);
         const userId = `usr_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
         const now = new Date().toISOString();
-        const settingsStr = JSON.stringify(settings);
 
-        return new Promise((resolve, reject) => {
-            const sql = `
-                INSERT INTO users (id, name, email, passwordHash, settings, createdAt, updatedAt)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            `;
-            db.run(sql, [userId, trimmedName, trimmedEmail, passwordHash, settingsStr, now, now], function (err) {
-                if (err) {
-                    if (err.message && err.message.includes("UNIQUE constraint failed")) {
-                        const duplicateErr = new Error("Email is already registered");
-                        duplicateErr.code = "EMAIL_EXISTS";
-                        return reject(duplicateErr);
-                    }
-                    return reject(err);
-                }
-                resolve({
-                    id: userId,
-                    name: trimmedName,
-                    email: trimmedEmail,
-                    settings,
-                    createdAt: now,
-                    updatedAt: now
-                });
-            });
-        });
+        const newUser = {
+            id: userId,
+            name: trimmedName,
+            email: trimmedEmail,
+            passwordHash,
+            settings,
+            createdAt: now,
+            updatedAt: now
+        };
+
+        usersDB.push(newUser);
+
+        return this.formatUser(newUser);
     }
 
     static async findByEmail(email, includePassword = false) {
-        await this.ensureReady();
         const trimmedEmail = (email || "").trim().toLowerCase();
         if (!trimmedEmail) return null;
 
-        return new Promise((resolve, reject) => {
-            const sql = `SELECT * FROM users WHERE email = ? LIMIT 1`;
-            db.get(sql, [trimmedEmail], (err, row) => {
-                if (err) return reject(err);
-                if (!row) return resolve(null);
+        const row = usersDB.find(u => u.email === trimmedEmail);
+        if (!row) return null;
 
-                if (includePassword) {
-                    let parsedSettings = {};
-                    if (row.settings) {
-                        try { parsedSettings = JSON.parse(row.settings); } catch (e) {}
-                    }
-                    return resolve({
-                        id: row.id,
-                        name: row.name,
-                        email: row.email,
-                        passwordHash: row.passwordHash,
-                        settings: parsedSettings,
-                        createdAt: row.createdAt,
-                        updatedAt: row.updatedAt
-                    });
-                }
-                resolve(UserModel.formatUser(row));
-            });
-        });
+        if (includePassword) {
+            return {
+                id: row.id,
+                name: row.name,
+                email: row.email,
+                passwordHash: row.passwordHash,
+                settings: row.settings,
+                createdAt: row.createdAt,
+                updatedAt: row.updatedAt
+            };
+        }
+        return this.formatUser(row);
     }
 
     static async findById(id) {
-        await this.ensureReady();
         if (!id) return null;
-
-        return new Promise((resolve, reject) => {
-            const sql = `SELECT * FROM users WHERE id = ? LIMIT 1`;
-            db.get(sql, [id], (err, row) => {
-                if (err) return reject(err);
-                resolve(UserModel.formatUser(row));
-            });
-        });
+        const row = usersDB.find(u => u.id === id);
+        if (!row) return null;
+        return this.formatUser(row);
     }
 
     static async updateProfile(id, { name, settings }) {
-        await this.ensureReady();
-        const currentUser = await this.findById(id);
-        if (!currentUser) {
+        const currentUserIndex = usersDB.findIndex(u => u.id === id);
+        if (currentUserIndex === -1) {
             throw new Error("User not found");
         }
 
+        const currentUser = usersDB[currentUserIndex];
         const now = new Date().toISOString();
-        const updatedName = name !== undefined ? name.trim() : currentUser.name;
-        const updatedSettings = settings !== undefined
-            ? { ...currentUser.settings, ...settings }
-            : currentUser.settings;
-        const settingsStr = JSON.stringify(updatedSettings);
+        
+        if (name !== undefined) currentUser.name = name.trim();
+        if (settings !== undefined) currentUser.settings = { ...currentUser.settings, ...settings };
+        currentUser.updatedAt = now;
 
-        return new Promise((resolve, reject) => {
-            const sql = `
-                UPDATE users
-                SET name = ?, settings = ?, updatedAt = ?
-                WHERE id = ?
-            `;
-            db.run(sql, [updatedName, settingsStr, now, id], function (err) {
-                if (err) return reject(err);
-                resolve({
-                    id,
-                    name: updatedName,
-                    email: currentUser.email,
-                    settings: updatedSettings,
-                    createdAt: currentUser.createdAt,
-                    updatedAt: now
-                });
-            });
-        });
+        return this.formatUser(currentUser);
     }
 }
 

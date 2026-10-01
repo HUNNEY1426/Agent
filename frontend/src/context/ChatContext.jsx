@@ -177,7 +177,7 @@ export function ChatProvider({ children }) {
 
   // Load models when provider changes
   useEffect(() => {
-    if (!currentProvider) return;
+    if (!isAuthenticated || !currentProvider) return;
     const found = providers.find(p => (typeof p === 'object' ? p.id : p) === currentProvider);
     if (found && typeof found === 'object' && Array.isArray(found.models) && found.models.length > 0) {
       setModels(found.models);
@@ -194,7 +194,7 @@ export function ChatProvider({ children }) {
         })
         .catch(() => setModels([]));
     }
-  }, [currentProvider, providers]);
+  }, [currentProvider, providers, isAuthenticated]);
 
   const changeProvider = useCallback(async (provider) => {
     setCurrentProvider(provider);
