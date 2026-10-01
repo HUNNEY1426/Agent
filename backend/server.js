@@ -1,5 +1,16 @@
 require("dotenv").config();
 
+// Vercel polyfills for pdf-parse to prevent 'DOMMatrix is not defined' crash
+if (typeof global.DOMMatrix === 'undefined') {
+    global.DOMMatrix = class DOMMatrix { };
+}
+if (typeof global.ImageData === 'undefined') {
+    global.ImageData = class ImageData { };
+}
+if (typeof global.Path2D === 'undefined') {
+    global.Path2D = class Path2D { };
+}
+
 const express = require("express");
 const cookieParser = require("cookie-parser");
 const cors = require("cors");
