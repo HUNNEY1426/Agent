@@ -2,7 +2,8 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 
-const MEMORY_DIR = path.join(__dirname, "../../memory");
+const isVercel = process.env.VERCEL || process.env.VERCEL_ENV;
+const MEMORY_DIR = isVercel ? "/tmp/memory" : path.join(__dirname, "../../memory");
 const USERS_DIR = path.join(MEMORY_DIR, "users");
 
 // English stop words for lightweight token filtering

@@ -3,7 +3,8 @@ const fsPromises = require("fs").promises;
 const path = require("path");
 const { aiConfig, validateProvider, validateThinkingLevel } = require("../config/aiConfig");
 
-const MEMORY_DIR = path.join(__dirname, "../memory");
+const isVercel = process.env.VERCEL || process.env.VERCEL_ENV;
+const MEMORY_DIR = isVercel ? "/tmp/memory" : path.join(__dirname, "../memory");
 const LEGACY_SESSION_DIR = path.join(MEMORY_DIR, "sessions");
 const USERS_DIR = path.join(MEMORY_DIR, "users");
 

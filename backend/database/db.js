@@ -2,7 +2,8 @@ const sqlite3 = require("sqlite3").verbose();
 const path = require("path");
 const fs = require("fs");
 
-const DB_DIR = path.join(__dirname);
+const isVercel = process.env.VERCEL || process.env.VERCEL_ENV;
+const DB_DIR = isVercel ? "/tmp" : path.join(__dirname);
 const DB_PATH = path.join(DB_DIR, "agent.db");
 
 if (!fs.existsSync(DB_DIR)) {

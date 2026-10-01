@@ -9,7 +9,10 @@ const router = express.Router();
 router.use(authMiddleware);
 
 // Workspace root — all file operations restricted to this directory (defaults to backend root)
-const WORKSPACE_ROOT = process.env.WORKSPACE_ROOT ? path.resolve(process.env.WORKSPACE_ROOT) : path.resolve(__dirname, "..");
+const isVercel = process.env.VERCEL || process.env.VERCEL_ENV;
+const WORKSPACE_ROOT = isVercel 
+    ? "/tmp/workspace" 
+    : (process.env.WORKSPACE_ROOT ? path.resolve(process.env.WORKSPACE_ROOT) : path.resolve(__dirname, ".."));
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 

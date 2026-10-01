@@ -7,7 +7,8 @@ const pdfService = require("../services/pdf/pdfService");
 const { authMiddleware } = require("../middleware/authMiddleware");
 
 // Ensure upload directory exists
-const UPLOAD_DIR = path.join(__dirname, "../uploads");
+const isVercel = process.env.VERCEL || process.env.VERCEL_ENV;
+const UPLOAD_DIR = isVercel ? "/tmp/uploads" : path.join(__dirname, "../uploads");
 if (!fs.existsSync(UPLOAD_DIR)) {
     fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 }
