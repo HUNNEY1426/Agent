@@ -20,6 +20,7 @@ const allowedOrigins = [
     "http://127.0.0.1:5173",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "https://agent-bycr.vercel.app",
     process.env.FRONTEND_URL
 ].filter(Boolean);
 
@@ -74,7 +75,7 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 3000;
 
-if (process.env.NODE_ENV !== "test") {
+if (process.env.NODE_ENV !== "test" && !process.env.VERCEL) {
     const server = app.listen(PORT, () => {
         console.log(`Server running on http://localhost:${PORT}`);
     });

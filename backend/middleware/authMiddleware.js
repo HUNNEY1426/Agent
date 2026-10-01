@@ -43,6 +43,17 @@ async function authMiddleware(req, res, next) {
                     };
                     console.log(`[AUTH DEBUG] path=${req.path} cookiePresent=${cookiePresent} authorizationPresent=${authorizationPresent} jwtValid=${jwtValid} userFound=${userFound}`);
                     return next();
+                } else {
+                    // Fallback to JWT data (useful for Vercel Serverless where SQLite might reset)
+                    userFound = true;
+                    req.user = {
+                        id: decoded.id,
+                        email: decoded.email,
+                        name: decoded.name,
+                        settings: {}
+                    };
+                    console.log(`[AUTH DEBUG] path=${req.path} using JWT fallback`);
+                    return next();
                 }
             } catch (jwtErr) {
                 jwtValid = false;
