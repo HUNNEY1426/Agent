@@ -44,14 +44,16 @@ app.use(cookieParser());
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
-// Routes
-app.use("/auth", authRoutes);
-app.use("/user", userRoutes);
-app.use("/ai", aiRoutes);
-app.use("/file", fileRoutes);
-app.use("/shell", shellRoutes);
-app.use("/pdf", pdfRoutes);
-app.use("/history", historyRoutes);
+const apiRouter = express.Router();
+apiRouter.use("/auth", authRoutes);
+apiRouter.use("/user", userRoutes);
+apiRouter.use("/ai", aiRoutes);
+apiRouter.use("/file", fileRoutes);
+apiRouter.use("/shell", shellRoutes);
+apiRouter.use("/pdf", pdfRoutes);
+apiRouter.use("/history", historyRoutes);
+
+app.use("/api", apiRouter);
 
 app.get("/", (req, res) => {
     res.json({
